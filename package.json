@@ -1,0 +1,38 @@
+{
+  "name": "dekho_exam",
+  "version": "1.0.0",
+  "description": "",
+  "main": "dist/server.mjs",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsdown src/server.ts --out-dir dist",
+    "start": "node dist/server.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.10",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/morgan": "^1.9.10",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^25.0.9",
+    "tsdown": "^0.20.0-beta.3",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@prisma/client": "^7.2.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv-flow": "^4.1.0",
+    "express": "^5.2.1",
+    "morgan": "^1.10.1",
+    "multer": "^2.0.2",
+    "prisma": "^7.2.0",
+    "winston": "^3.19.0",
+    "zod": "^4.3.5"
+  }
+}
