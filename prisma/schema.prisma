@@ -6,3 +6,409 @@ generator client {
 datasource db {
   provider  = "postgresql"
 }
+
+// ENUM
+enum UserRole {
+    STUDENT
+    ADMIN
+}
+
+enum AuthMethod {
+  OTP
+  EMAIL_PASSWORD
+}
+
+enum DifficultyLevel {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum TestStatus {
+  IN_PROGRESS 
+  SUBMITTED
+  EXPIRED
+  ABANDONED
+}
+
+enum SubscriptionType {
+  CATEGORY_SPECIFIC 
+  ALL_CATEGORIES
+}
+
+model User {
+  id  String @id @default(uuid())
+
+  // Authentication
+  phoneNumber String? @unique 
+  email String? @unique
+  password String? 
+  // authMethod AuthMethod @default(OTP)
+
+  // profile
+  name String?
+  avatar String?
+  role UserRole @default(STUDENT)
+
+  // Status
+  isActive Boolean @default(true)
+  isEmailVerified Boolean @default(false)
+  isPhoneVerified Boolean @default(false)
+
+  // student specific fields
+  freeTestsUsed Int @default(0)
+
+  // admin specific fields
+  lastLoginAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+
+  // Relations
+  sessions Session[]
+  subscriptions UserSubscription[]
+  testAttempts TestAttempt[]
+  payments Payment[]
+  auditLogs AuditLog[]
+
+  // Admin activities
+  createdCategories Category[] @relation("CategoryCreator")
+  createdQuestions Question[] @relation("QuestionCreator")
+  createdTests Test[] @relation("TestCreator")
+
+  @@index([phoneNumber])
+  @@index([email])
+  @@index([role, isActive])
+}
+
+model Session {
+  id String @id @default(uuid())
+  userId String
+  deviceId String
+  deviceName String?
+  deviceType String?
+  token String
+  refreshToken String?
+  isActive Boolean @default(true)
+  lastActivity DateTime @default(now())
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isActive])
+  @@index([token])
+  @@index([refreshToken])
+}
+
+model OTP {
+  id String @id @default(uuid())
+  phoneNumber String?
+  email String?
+  code String
+  purpose String @default("login")
+  expiresAt DateTime
+  isVerified Boolean @default(false)
+  attempts Int @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([phoneNumber, expiresAt])
+  @@index([email, expiresAt])
+}
+
+// Permissions (optional - for fine grained control)
+
+model Permission {
+  id String @id @default(uuid())
+  name String @unique 
+  description String?
+  module String
+  createdAt DateTime @default(now())
+
+  roles RolePermission[]
+}
+
+model RolePermission {
+  id String @id @default(uuid())
+  role UserRole
+  permissionId String
+  createdAt DateTime @default(now())
+
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([role, permissionId])
+  @@index([role])
+}
+
+// Subscription & payment
+
+model SubscriptionPlan {
+  id String @id @default(uuid())
+  name String
+  description String?
+  price Decimal @db.Decimal(10, 2)
+  durationDays Int
+  type SubscriptionType 
+  categoryId String?
+
+  isActive Boolean @default(true)
+  displayOrder Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  category Category?  @relation(fields: [categoryId], references: [id])
+  userSubscriptions UserSubscription[]
+
+  @@index([type, isActive])
+  @@index([categoryId])
+}
+
+model UserSubscription {
+  id String @id @default(uuid())
+  userId String
+  planId String
+  type SubscriptionType
+  categoryId String?
+  startDate DateTime @default(now())
+  endDate DateTime
+  isActive Boolean @default(true)
+  autoRenew Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  @@index([userId, isActive, endDate])
+  @@index([categoryId, isActive])
+}
+
+model Payment {
+  id String @id @default(uuid())
+  userId String
+  amount Decimal @db.Decimal(10,2)
+  currency String @default("INR")
+  paymentGateway String 
+  transactionId String? @unique
+  orderId String?  @unique
+  status String 
+  metadata Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, status])
+}
+
+// Exam structure
+
+model Category {
+  id String @id @default(uuid())
+  name String @unique
+  description String?
+  imageUrl String?
+  isActive Boolean @default(true)
+  displayOrder Int @default(0)
+  createdById String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+
+  categorySubjects CategorySubject[]
+  tests Test[]
+  subscriptionPlans SubscriptionPlan[]
+
+
+  createdBy User? @relation("CategoryCreator", fields: [createdById], references: [id])
+
+  @@index([isActive, displayOrder])
+}
+
+model Subject {
+  id String @id @default(uuid())
+  name String
+  description String?
+  imageUrl String?
+
+  isActive Boolean @default(true)
+  displayOrder Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+ 
+  topics Topic[]
+  categorySubjects CategorySubject[]
+
+ @@index([isActive])
+}
+
+model CategorySubject {
+  id String @id @default(uuid())
+  categoryId  String
+  subjectId String
+  questionsPerTest Int 
+  displayOrder Int @default(0)
+  createdAt DateTime @default(now())
+
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  subject Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryId, subjectId])
+  @@index([categoryId])
+}
+
+model Topic {
+  id String @id @default(uuid())
+  subjectId String
+  name String
+  description String? @db.Text
+  content String? @db.Text
+  videoUrl String?
+  pdfUrl String? 
+  displayOrder Int @default(0)
+  isActive Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  subject Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  questions Question[]
+
+  @@index([subjectId, isActive])
+}
+
+// Questions & tests
+
+model Question {
+  id String @id @default(uuid())
+  topicId String
+  questionText String @db.Text
+  questionImageUrl String?
+  option1 String
+  option2 String
+  option3 String
+  option4 String
+  correctOption Int
+  explanation String? @db.Text
+  explanationImageUrl String?
+  difficultyLevel  DifficultyLevel @default(MEDIUM)
+  isActive Boolean @default(true)
+  createdById String? 
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  topic Topic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  answer TestAttemptAnswer[]
+  createdBy User? @relation("QuestionCreator", fields: [createdById], references: [id])
+
+  @@index([topicId, isActive])
+  @@index([difficultyLevel])
+}
+
+model Test {
+  id String @id @default(uuid())
+  categoryId String
+  name String
+  description String?
+  totalQuestions Int @default(100)
+  durationMinutes Int @default(60)
+  positiveMarks Decimal @db.Decimal(5, 2) @default(1.0)
+  negativeMarks Decimal @db.Decimal(5,2) @default(0.25)
+  isPaid  Boolean @default(false)
+  testNumber Int
+  isActive Boolean @default(true)
+  createdById String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  testAttempts TestAttempt[]
+  createdBy User? @relation("TestCreator", fields: [createdById], references: [id])
+
+  @@index([categoryId, isPaid, isActive])
+}
+
+model TestAttempt {
+  id String @id @default(uuid())
+  userId  String
+  testId String
+  attemptNumber Int
+  startedAt DateTime @default(now())
+  submittedAt DateTime?
+  status TestStatus @default(IN_PROGRESS)
+
+  questionSetSeed String 
+  questionIds Json
+
+  totalQuestions Int
+  attemptedCount Int @default(0)
+  correctCount Int @default(0)
+  incorrectCount Int @default(0)
+  totalMarks Decimal? @db.Decimal(10,2)
+  percentage Decimal? @db.Decimal(5,2)
+  rank Int? 
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  test Test @relation(fields: [testId], references: [id], onDelete: Cascade)
+  answers TestAttemptAnswer[]
+
+  @@unique([userId, testId, attemptNumber])
+  @@index([userId, status])
+  @@index([testId, submittedAt])
+}
+
+model TestAttemptAnswer {
+  id String @id @default(uuid())
+  attemptId String
+  questionId String
+  selectedOption Int?
+  isCorrect Boolean?
+  marksObtained Decimal @db.Decimal(5, 2) @default(0)
+  timeSpent Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  attempt TestAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question Question @relation(fields: [questionId], references: [id])
+
+  @@index([attemptId, questionId])
+  @@index([attemptId])
+}
+
+model AuditLog {
+  id String @id @default(uuid())
+  userId String?
+  action String
+  entity String?
+  entityId String?
+  details Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+}
+
+
+// Notification
+model Notification {
+  id String @id @default(uuid())
+  userId String
+  title String
+  message String @db.Text
+  type String 
+  isRead Boolean @default(false)
+  metaData Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead, createdAt])
+}

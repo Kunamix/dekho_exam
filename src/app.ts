@@ -24,6 +24,10 @@ app.use(morganMiddleware);
 app.disable("x-powered-by");
 
 
+// Api Routes
+import healthRouter from "@/routes/healthcheck.route"
+
+app.use("/api/v1/health-check",healthRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
