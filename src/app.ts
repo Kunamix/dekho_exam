@@ -25,9 +25,13 @@ app.disable("x-powered-by");
 
 
 // Api Routes
-import healthRouter from "@/routes/healthcheck.route"
+import healthRouter from "@/routes/healthcheck.route";
+import authRouter from "@/routes/auth.route";
 
 app.use("/api/v1/health-check",healthRouter);
+
+// admin dashboard
+app.use("/api/v1/auth",authRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
