@@ -7,6 +7,26 @@ import { ApiResponse } from "@/utils/ApiResponse";
 import { asyncHandler } from "@/utils/asyncHandler";
 import { Request, Response } from "express";
 
+export const admin = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as any).user?.id;
+
+  if (!userId) {
+    throw new ApiError(400, "Your session is expired");
+  }
+
+  const admin = await prisma.user.findUnique({
+    where: { id: userId },
+  });
+
+  if (!admin) {
+    throw new ApiError(401, "Unauthorized request");
+  }
+
+  return res
+    .status(201)
+    .json(new ApiResponse(201, admin, "user info get successfully"));
+});
+
 export const adminLogin = asyncHandler(async (req: Request, res: Response) => {
   const { email, password, phoneNumber } = req.body;
   if (!email && !phoneNumber) {
