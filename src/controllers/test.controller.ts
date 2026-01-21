@@ -273,133 +273,6 @@ export const startTest = asyncHandler(async (req: Request, res: Response) => {
   );
 });
 
-export const submitTest = asyncHandler(async (req: Request, res: Response) => {
-  const userId = (req as any).user.id;
-  const { attemptId, answers } = req.body;
-  // answers format: [{ questionId: "...", selectedOption: 1, timeSpent: 30 }, ...]
-
-  if (!attemptId) throw new ApiError(400, "Attempt ID is required");
-
-  // 1. Fetch Attempt & Test Rules
-  const attempt = await prisma.testAttempt.findUnique({
-    where: { id: attemptId },
-    include: { test: true },
-  });
-
-  if (!attempt) throw new ApiError(404, "Test attempt not found");
-  if (attempt.userId !== userId) throw new ApiError(403, "Unauthorized");
-  if (attempt.status === TestStatus.SUBMITTED)
-    throw new ApiError(400, "Test already submitted");
-
-  // 2. Fetch all questions involved in this attempt to check answers
-  // We use the questionIds stored in the attempt to ensure we check the right questions
-  // (Assuming questionIds is stored as string[] in JSON)
-  const questionIds = attempt.questionIds as string[];
-
-  const questions = await prisma.question.findMany({
-    where: { id: { in: questionIds } },
-    select: { id: true, correctOption: true },
-  });
-
-  // Create a Map for O(1) lookup: questionId -> correctOption
-  const questionMap = new Map(questions.map((q) => [q.id, q.correctOption]));
-
-  // 3. Calculate Scores
-  let correctCount = 0;
-  let incorrectCount = 0;
-  let attemptedCount = 0;
-  let totalScore = 0;
-  const positiveMarks = Number(attempt.test.positiveMarks);
-  const negativeMarks = Number(attempt.test.negativeMarks);
-
-  const processedAnswers: any = [];
-
-  // Iterate through the user's submitted answers
-  for (const ans of answers) {
-    const correctOption = questionMap.get(ans.questionId);
-
-    // Skip if user sent an ID not in the test
-    if (correctOption === undefined) continue;
-
-    let isCorrect = false;
-    let marksObtained = 0;
-
-    // If user selected an option (1-4)
-    if (ans.selectedOption && ans.selectedOption > 0) {
-      attemptedCount++;
-
-      if (ans.selectedOption === correctOption) {
-        correctCount++;
-        isCorrect = true;
-        marksObtained = positiveMarks;
-      } else {
-        incorrectCount++;
-        isCorrect = false;
-        marksObtained = -negativeMarks; // Subtract marks
-      }
-    }
-
-    totalScore += marksObtained;
-
-    // Prepare data for bulk insertion
-    processedAnswers.push({
-      attemptId: attemptId,
-      questionId: ans.questionId,
-      selectedOption: ans.selectedOption || null,
-      isCorrect: ans.selectedOption ? isCorrect : null,
-      marksObtained: marksObtained,
-      timeSpent: ans.timeSpent || 0,
-    });
-  }
-
-  // Calculate Percentage
-  const maxMarks = attempt.totalQuestions * positiveMarks;
-  const percentage = maxMarks > 0 ? (totalScore / maxMarks) * 100 : 0;
-
-  // 4. Transaction: Save everything
-  await prisma.$transaction(async (tx) => {
-    // A. Update the Attempt Header
-    await tx.testAttempt.update({
-      where: { id: attemptId },
-      data: {
-        status: TestStatus.SUBMITTED,
-        submittedAt: new Date(),
-        attemptedCount,
-        correctCount,
-        incorrectCount,
-        totalMarks: totalScore,
-        percentage: percentage,
-      },
-    });
-
-    // B. Save detailed answers
-    // Note: createMany is supported in Postgres
-    if (processedAnswers.length > 0) {
-      await tx.testAttemptAnswer.createMany({
-        data: processedAnswers,
-      });
-    }
-  });
-
-  // 5. Return Summary
-  return res.status(200).json(
-    new ApiResponse(
-      200,
-      {
-        totalScore,
-        correctCount,
-        incorrectCount,
-        unattemptedCount: attempt.totalQuestions - attemptedCount,
-        percentage: parseFloat(percentage.toFixed(2)),
-        accuracy:
-          attemptedCount > 0
-            ? ((correctCount / attemptedCount) * 100).toFixed(2)
-            : 0,
-      },
-      "Test submitted successfully",
-    ),
-  );
-});
 
 export const viewTestSolution = asyncHandler(
   async (req: Request, res: Response) => {
@@ -1094,4 +967,261 @@ export const getAttemptHistory = asyncHandler(async (req: Request, res: Response
   }));
 
   return res.status(200).json(new ApiResponse(200, formatted, "History fetched"));
+});
+
+
+// 1. Get Test Instructions (Meta)
+export const getTestInstructions = asyncHandler(async (req: Request, res: Response) => {
+  const { testId } = req.params;
+
+  const test = await prisma.test.findUnique({
+    where: { id: testId.toString() },
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      durationMinutes: true,
+      totalQuestions: true,
+      positiveMarks: true,
+      negativeMarks: true,
+      isPaid: true
+    }
+  });
+
+  if (!test) throw new ApiError(404, "Test not found");
+
+  return res.status(200).json(new ApiResponse(200, test, "Instructions fetched"));
+});
+
+// 2. Start Test Attempt
+export const startTestAttempt = asyncHandler(async (req: Request, res: Response) => {
+  const { testId } = req.params;
+  const userId = (req as any).user.userId;
+
+  // Check if there is an existing IN_PROGRESS attempt
+  const existingAttempt = await prisma.testAttempt.findFirst({
+    where: { userId:toString(), testId:testId.toString(), status: "IN_PROGRESS" }
+  });
+
+  if (existingAttempt) {
+    return res.status(200).json(new ApiResponse(200, { attemptId: existingAttempt.id }, "Resuming test"));
+  }
+
+  // Fetch Test Config
+  const test = await prisma.test.findUnique({ where: { id: testId.toString() } });
+  if (!test) throw new ApiError(404, "Test not found");
+
+  // Fetch Question IDs (Randomized logic can be added here)
+  const questions = await prisma.question.findMany({
+    where: { 
+      topic: { 
+        subject: { 
+          categorySubjects: { some: { categoryId: test.categoryId } } 
+        } 
+      },
+      isActive: true
+    },
+    take: test.totalQuestions,
+    select: { id: true }
+  });
+
+  const questionIds = questions.map(q => q.id);
+
+  // Create Attempt
+  const newAttempt = await prisma.testAttempt.create({
+    data: {
+      userId:userId.toString(),
+      testId:testId.toString(),
+      attemptNumber: 1, // Logic to increment this can be added
+      totalQuestions: test.totalQuestions,
+      status: "IN_PROGRESS",
+      questionIds: questionIds, // Storing IDs as JSON array
+      questionSetSeed: "default"
+    }
+  });
+
+  return res.status(201).json(new ApiResponse(201, { attemptId: newAttempt.id }, "Test started"));
+});
+
+// 3. Get Questions for Attempt
+export const getAttemptQuestions = asyncHandler(async (req: Request, res: Response) => {
+  const { attemptId } = req.params;
+  const userId = (req as any).user.userId;
+
+  const attempt = await prisma.testAttempt.findUnique({
+    where: { id: attemptId.toString(), userId },
+    include: { test: true }
+  });
+
+  if (!attempt || attempt.status !== "IN_PROGRESS") {
+    throw new ApiError(400, "Invalid attempt or test already submitted");
+  }
+
+  // Calculate Time Left
+  const now = new Date();
+  const startTime = new Date(attempt.startedAt);
+  const durationMs = attempt.test.durationMinutes * 60 * 1000;
+  const expiryTime = new Date(startTime.getTime() + durationMs);
+  
+  let timeLeftSeconds = Math.floor((expiryTime.getTime() - now.getTime()) / 1000);
+  if (timeLeftSeconds < 0) timeLeftSeconds = 0;
+
+  // Fetch Full Question Details based on stored IDs
+  const questionIds = attempt.questionIds as string[];
+  const questions = await prisma.question.findMany({
+    where: { id: { in: questionIds } },
+    select: {
+      id: true,
+      questionText: true,
+      option1: true,
+      option2: true,
+      option3: true,
+      option4: true,
+      questionImageUrl: true,
+      difficultyLevel: true
+    }
+  });
+
+  // Order them according to the stored ID array order
+  const orderedQuestions = questionIds.map(id => questions.find(q => q.id === id));
+
+  return res.status(200).json(new ApiResponse(200, {
+    questions: orderedQuestions,
+    timeLeftSeconds
+  }, "Questions fetched"));
+});
+
+// 4. Save Answer (Auto-save)
+export const saveAnswer = asyncHandler(async (req: Request, res: Response) => {
+  const { attemptId } = req.params;
+  const { questionId, selectedOption, timeSpent } = req.body; // option: 1,2,3,4 or null to clear
+
+  // Security check: ensure attempt is still in progress
+  const attempt = await prisma.testAttempt.findUnique({ where: { id: attemptId.toString() } });
+  if (!attempt || attempt.status !== "IN_PROGRESS") {
+    throw new ApiError(400, "Cannot save answer. Test is not in progress.");
+  }
+
+  // Find existing answer or create new
+  const existingAnswer = await prisma.testAttemptAnswer.findFirst({
+    where: { attemptId:attemptId.toString(), questionId }
+  });
+
+  if (existingAnswer) {
+    await prisma.testAttemptAnswer.update({
+      where: { id: existingAnswer.id },
+      data: { selectedOption: selectedOption ? Number(selectedOption) : null, timeSpent }
+    });
+  } else {
+    await prisma.testAttemptAnswer.create({
+      data: {
+        attemptId:attemptId.toString(),
+        questionId,
+        selectedOption: selectedOption ? Number(selectedOption) : null,
+        timeSpent: timeSpent || 0
+      }
+    });
+  }
+
+  return res.status(200).json(new ApiResponse(200, null, "Saved"));
+});
+
+// 5. Submit Test & Calculate Result
+export const submitTest = asyncHandler(async (req: Request, res: Response) => {
+  const { attemptId } = req.params;
+
+  const attempt = await prisma.testAttempt.findUnique({
+    where: { id: attemptId.toString() },
+    include: { test: true }
+  });
+
+  if (!attempt || attempt.status === "SUBMITTED") {
+    throw new ApiError(400, "Invalid attempt or already submitted");
+  }
+
+  // Fetch all user answers
+  const userAnswers = await prisma.testAttemptAnswer.findMany({
+    where: { attemptId:attemptId.toString() },
+    include: { question: true }
+  });
+
+  let correct = 0;
+  let incorrect = 0;
+  let unattempted = attempt.totalQuestions - userAnswers.length;
+
+  const posMarks = Number(attempt.test.positiveMarks);
+  const negMarks = Number(attempt.test.negativeMarks);
+
+  // Score Calculation
+  for (const ans of userAnswers) {
+    if (ans.selectedOption === null) {
+      unattempted++;
+      continue;
+    }
+
+    const isCorrect = ans.selectedOption === ans.question.correctOption;
+    
+    // Update individual answer correctness in DB
+    await prisma.testAttemptAnswer.update({
+      where: { id: ans.id },
+      data: {
+        isCorrect,
+        marksObtained: isCorrect ? posMarks : -negMarks
+      }
+    });
+
+    if (isCorrect) correct++;
+    else incorrect++;
+  }
+
+  const totalMarks = (correct * posMarks) - (incorrect * negMarks);
+  const percentage = (totalMarks / (attempt.totalQuestions * posMarks)) * 100;
+
+  // Update Attempt with final stats
+  await prisma.testAttempt.update({
+    where: { id: attemptId.toString() },
+    data: {
+      status: "SUBMITTED",
+      submittedAt: new Date(),
+      correctCount: correct,
+      incorrectCount: incorrect,
+      attemptedCount: correct + incorrect,
+      totalMarks,
+      percentage
+    }
+  });
+
+  return res.status(200).json(new ApiResponse(200, { attemptId }, "Test submitted successfully"));
+});
+
+// 6. Get Result Report
+export const getTestResult = asyncHandler(async (req: Request, res: Response) => {
+  const { attemptId } = req.params;
+
+  const attempt = await prisma.testAttempt.findUnique({
+    where: { id: attemptId.toString() },
+    include: { 
+      test: { select: { name: true, totalQuestions: true, positiveMarks: true } }
+    }
+  });
+
+  if (!attempt || attempt.status !== "SUBMITTED") {
+    throw new ApiError(400, "Result not available");
+  }
+
+  const data = {
+    testName: attempt.test.name,
+    score: Number(attempt.totalMarks),
+    totalScore: attempt.test.totalQuestions * Number(attempt.test.positiveMarks),
+    percentage: Number(attempt.percentage),
+    correct: attempt.correctCount,
+    incorrect: attempt.incorrectCount,
+    unattempted: attempt.totalQuestions - attempt.attemptedCount,
+    accuracy: attempt.attemptedCount > 0 
+      ? ((attempt.correctCount / attempt.attemptedCount) * 100).toFixed(1) 
+      : 0,
+    timeTaken: "25m 30s" // You can calculate actual time difference if needed
+  };
+
+  return res.status(200).json(new ApiResponse(200, data, "Result fetched"));
 });

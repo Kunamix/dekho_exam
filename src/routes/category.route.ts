@@ -1,5 +1,6 @@
 import {
   assignSubjectsToCategory,
+  checkCategoryAccess,
   createCategory,
   deleteCategory,
   getAllCategories,
@@ -11,6 +12,10 @@ import { Router } from "express";
 
 const router = Router();
 
+// app
+router.get("/category/check-category-access/:categoryId",verifyToken,checkCategoryAccess);
+
+// Web OR APP
 router.post("/category/create", verifyToken, verifyAdmin, createCategory);
 router.get("/category/categories", verifyToken, getAllCategories);
 router.get("/category/category-get-by-id/:id", verifyToken, getCategoryById);

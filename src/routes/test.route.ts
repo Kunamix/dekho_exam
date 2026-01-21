@@ -4,9 +4,15 @@ import {
   deleteTest,
   getAllTests,
   getAttemptHistory,
+  getAttemptQuestions,
   getPopularTests,
   getTestById,
+  getTestInstructions,
+  getTestResult,
   getTestStats,
+  saveAnswer,
+  startTestAttempt,
+  submitTest,
   updateTest,
 } from "@/controllers/test.controller";
 import { verifyAdmin, verifyToken } from "@/middlewares/auth.middleware";
@@ -17,7 +23,14 @@ const router = Router();
 // Only app
 router.get("/test/get-test-by-category-id/:categoryId", verifyToken);
 router.get("/test/get-popular-tests", verifyToken, getPopularTests);
-router.get("test/attempt-history", verifyToken, getAttemptHistory);
+router.get("/test/attempt-history", verifyToken, getAttemptHistory);
+router.get("/test/get-test-instruction/:testId",verifyToken,getTestInstructions);
+router.get("/test/start-test-attempt/:testId",verifyToken,startTestAttempt);
+router.get("/test/get-attempt-questions/:attemptId",verifyToken,getAttemptQuestions);
+router.post("/test/save-answer/:attemptId",verifyToken,saveAnswer);
+router.post("/test/submit-test/:attemptId",verifyToken,submitTest);
+router.get("/test/get-test-result/:attemptId",verifyToken,getTestResult);
+
 
 // app or web
 router.post("/test/create", verifyToken, verifyAdmin, createTest);

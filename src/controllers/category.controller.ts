@@ -277,3 +277,36 @@ export const assignSubjectsToCategory = asyncHandler(
       );
   },
 );
+
+export const checkCategoryAccess = asyncHandler(async (req: Request, res: Response) => {
+  const { categoryId } = req.params;
+  const userId = (req as any).user.userId;
+
+  // 1. Check for Active Subscription
+  const activeSub = await prisma.userSubscription.findFirst({
+    where: {
+      userId,
+      isActive: true,
+      endDate: { gt: new Date() }, // Not expired
+      OR: [
+        { categoryId: categoryId.toString() },       // Specific access
+        { type: 'ALL_CATEGORIES' }        // Global access
+      ]
+    }
+  });
+
+  if (activeSub) {
+    return res.status(200).json(new ApiResponse(200, { isUnlocked: true }, "Unlocked"));
+  }
+
+  // 2. If Locked, return plan details to sell
+  const plan = await prisma.subscriptionPlan.findFirst({
+    where: { categoryId:categoryId.toString(), isActive: true },
+    select: { id: true, name: true, price: true, durationDays: true }
+  });
+
+  return res.status(200).json(new ApiResponse(200, { 
+    isUnlocked: false,
+    purchaseOption: plan 
+  }, "Locked"));
+});
