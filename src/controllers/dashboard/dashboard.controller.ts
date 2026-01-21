@@ -172,3 +172,126 @@ export const getRecentUsersWidget = asyncHandler(async (_req: Request, res: Resp
 
   return res.status(200).json(new ApiResponse(200, formatted, "Recent users fetched"));
 });
+
+// Add to dashboard.controller.ts
+
+export const getReportsAnalytics = asyncHandler(
+  async (req: Request, res: Response) => {
+    const today = new Date();
+    const last7Days = subDays(today, 7);
+    const last30Days = subDays(today, 30);
+
+    // 1. Get test attempts by category (real data)
+    const categoryAttempts = await prisma.category.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        name: true,
+        tests: {
+          select: {
+            _count: {
+              select: { testAttempts: true }
+            }
+          }
+        }
+      }
+    });
+
+    const testAttemptsByCategory = categoryAttempts.map(cat => ({
+      category: cat.name,
+      attempts: cat.tests.reduce((sum, test) => sum + test._count.testAttempts, 0)
+    })).sort((a, b) => b.attempts - a.attempts);
+
+    // 2. Daily user registrations (last 7 days)
+    const dailyRegistrations = await prisma.$queryRaw<Array<{ date: string; users: number }>>`
+      SELECT 
+        DATE("createdAt") as date,
+        COUNT(*)::int as users
+      FROM "User"
+      WHERE "createdAt" >= ${last7Days}
+      GROUP BY DATE("createdAt")
+      ORDER BY date ASC
+    `;
+
+    // 3. Question difficulty distribution
+    const difficultyStats = await prisma.question.groupBy({
+      by: ['difficultyLevel'],
+      where: { isActive: true },
+      _count: { id: true }
+    });
+
+    const difficultyDistribution = difficultyStats.map(stat => ({
+      name: stat.difficultyLevel,
+      value: stat._count.id
+    }));
+
+    // 4. Average test score and total attempts
+    const testStats = await prisma.testAttempt.aggregate({
+      where: { 
+        status: 'SUBMITTED',
+        createdAt: { gte: last30Days }
+      },
+      _avg: { percentage: true },
+      _count: { id: true }
+    });
+
+    // 5. Top performing users (based on average scores)
+    const topUsers = await prisma.$queryRaw<Array<{
+      userId: string;
+      name: string;
+      email: string;
+      avgScore: number;
+      testsAttempted: number;
+    }>>`
+      SELECT 
+        u.id as "userId",
+        u.name,
+        u.email,
+        AVG(ta.percentage)::numeric(5,2) as "avgScore",
+        COUNT(ta.id)::int as "testsAttempted"
+      FROM "User" u
+      INNER JOIN "TestAttempt" ta ON ta."userId" = u.id
+      WHERE ta.status = 'SUBMITTED'
+      GROUP BY u.id, u.name, u.email
+      HAVING COUNT(ta.id) >= 3
+      ORDER BY "avgScore" DESC
+      LIMIT 10
+    `;
+
+    // 6. Subscription conversion funnel
+    const totalUsers = await prisma.user.count({ where: { role: 'STUDENT' } });
+    const usersWithAttempts = await prisma.user.count({
+      where: {
+        role: 'STUDENT',
+        testAttempts: { some: {} }
+      }
+    });
+    const activeSubscribers = await prisma.userSubscription.count({
+      where: { isActive: true, endDate: { gt: today } }
+    });
+
+    const conversionFunnel = [
+      { name: 'Total Users', value: totalUsers },
+      { name: 'Test Takers', value: usersWithAttempts },
+      { name: 'Active Subscribers', value: activeSubscribers },
+    ];
+
+    // 7. Most popular category
+    const mostPopular = testAttemptsByCategory[0] || { category: 'N/A', attempts: 0 };
+
+    return res.status(200).json(
+      new ApiResponse(200, {
+        testAttemptsByCategory,
+        dailyRegistrations,
+        difficultyDistribution,
+        averageTestScore: Number(testStats._avg.percentage || 0).toFixed(1),
+        totalTestAttempts: testStats._count.id,
+        topPerformers: topUsers,
+        conversionFunnel,
+        mostPopularCategory: mostPopular.category,
+        mostPopularAttempts: mostPopular.attempts
+      }, "Reports analytics fetched successfully")
+    );
+  }
+);
+

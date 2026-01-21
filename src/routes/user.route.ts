@@ -11,7 +11,6 @@ import {
   updateUser,
 } from "@/controllers/user.controller";
 import { verifyAdmin, verifyToken } from "@/middlewares/auth.middleware";
-import { upload } from "@/middlewares/multer.midlleware";
 import { Router } from "express";
 
 const router = Router();

@@ -14,6 +14,7 @@ import {
   startTestAttempt,
   submitTest,
   updateTest,
+  viewTestSolution,
 } from "@/controllers/test.controller";
 import { verifyAdmin, verifyToken } from "@/middlewares/auth.middleware";
 import { Router } from "express";
@@ -30,6 +31,7 @@ router.get("/test/get-attempt-questions/:attemptId",verifyToken,getAttemptQuesti
 router.post("/test/save-answer/:attemptId",verifyToken,saveAnswer);
 router.post("/test/submit-test/:attemptId",verifyToken,submitTest);
 router.get("/test/get-test-result/:attemptId",verifyToken,getTestResult);
+router.get("/test/view-solution/:attemptId", verifyToken, viewTestSolution)
 
 
 // app or web
@@ -37,7 +39,7 @@ router.post("/test/create", verifyToken, verifyAdmin, createTest);
 router.get("/test/get-all-tests", verifyToken, verifyAdmin, getAllTests);
 router.get("/test/stats", verifyToken, verifyAdmin, getTestStats);
 router.get("/test/get-test-by-id/:id", verifyToken, verifyAdmin, getTestById);
-router.put("/test/update-test/:id", verifyToken, verifyAdmin, updateTest);
+router.patch("/test/update-test/:id", verifyToken, verifyAdmin, updateTest);
 router.delete("/test/delete-test/:id", verifyToken, verifyAdmin, deleteTest);
 router.post("/test/:id/clone", verifyToken, verifyAdmin, cloneTest);
 

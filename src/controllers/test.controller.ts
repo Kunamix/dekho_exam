@@ -274,103 +274,6 @@ export const startTest = asyncHandler(async (req: Request, res: Response) => {
 });
 
 
-export const viewTestSolution = asyncHandler(
-  async (req: Request, res: Response) => {
-    const userId = (req as any).user.id;
-    const { attemptId } = req.params;
-
-    // 1. Fetch Attempt with detailed answers and question data
-    const attempt = await prisma.testAttempt.findUnique({
-      where: { id: attemptId.toString() },
-      include: {
-        test: {
-          select: {
-            name: true,
-            totalQuestions: true,
-            positiveMarks: true,
-            negativeMarks: true,
-          },
-        },
-        answers: {
-          include: {
-            question: {
-              select: {
-                id: true,
-                questionText: true,
-                questionImageUrl: true,
-                option1: true,
-                option2: true,
-                option3: true,
-                option4: true,
-                correctOption: true, // The right answer
-                explanation: true, // The solution text
-                explanationImageUrl: true,
-                difficultyLevel: true,
-              },
-            },
-          },
-          orderBy: { createdAt: "asc" }, // Or however you want to order them
-        },
-      },
-    });
-
-    if (!attempt) throw new ApiError(404, "Attempt not found");
-
-    // Security: Only allow the user who took the test (or an admin) to view it
-    if (attempt.userId !== userId) {
-      throw new ApiError(403, "You are not authorized to view this solution");
-    }
-
-    // Optional: Only allow viewing solution if submitted
-    if (attempt.status !== TestStatus.SUBMITTED) {
-      throw new ApiError(400, "Test is not yet submitted");
-    }
-
-    // 2. Format Response
-    const formattedSolutions = attempt.answers.map((ans) => ({
-      questionId: ans.questionId,
-      questionText: ans.question.questionText,
-      images: {
-        question: ans.question.questionImageUrl,
-        explanation: ans.question.explanationImageUrl,
-      },
-      options: [
-        ans.question.option1,
-        ans.question.option2,
-        ans.question.option3,
-        ans.question.option4,
-      ],
-      correctOption: ans.question.correctOption, // 1-4
-      userSelectedOption: ans.selectedOption, // 1-4 or null
-      status: !ans.selectedOption
-        ? "UNATTEMPTED"
-        : ans.isCorrect
-          ? "CORRECT"
-          : "INCORRECT",
-      marksObtained: ans.marksObtained,
-      timeSpent: ans.timeSpent,
-      explanation: ans.question.explanation,
-      difficulty: ans.question.difficultyLevel,
-    }));
-
-    return res.status(200).json(
-      new ApiResponse(
-        200,
-        {
-          testName: attempt.test.name,
-          stats: {
-            score: attempt.totalMarks,
-            rank: attempt.rank, // Populated via background job usually, or null
-            percentage: attempt.percentage,
-          },
-          solutions: formattedSolutions,
-        },
-        "Solutions fetched successfully",
-      ),
-    );
-  },
-);
-
 export const reportIssue = asyncHandler(async (req: Request, res: Response) => {
   const userId = (req as any).user.id;
   const { type, entityId, description } = req.body;
@@ -1224,4 +1127,116 @@ export const getTestResult = asyncHandler(async (req: Request, res: Response) =>
   };
 
   return res.status(200).json(new ApiResponse(200, data, "Result fetched"));
+});
+
+export const viewTestSolution = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as any).user.id; // Or .userId depending on your middleware
+  const { attemptId } = req.params;
+
+  if (!attemptId) {
+    throw new ApiError(400, "Attempt ID is required");
+  }
+
+  // 1. Fetch Attempt with deep nested relations
+  // We need: Test Info -> Answers -> Linked Question (with correct option & explanation)
+  const attempt = await prisma.testAttempt.findUnique({
+    where: { id: attemptId.toString() },
+    include: {
+      test: {
+        select: {
+          name: true,
+          totalQuestions: true,
+          positiveMarks: true,
+          negativeMarks: true,
+        },
+      },
+      answers: {
+        orderBy: { question: { id: 'asc' } }, // Keep consistent order
+        include: {
+          question: {
+            select: {
+              id: true,
+              questionText: true,
+              questionImageUrl: true,
+              option1: true,
+              option2: true,
+              option3: true,
+              option4: true,
+              correctOption: true,       // Critical for solution
+              explanation: true,         // Critical for solution
+              explanationImageUrl: true, // Critical for solution
+              difficultyLevel: true,
+              topicId: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  // 2. Validations
+  if (!attempt) {
+    throw new ApiError(404, "Test attempt not found");
+  }
+
+  // Security: Ensure the requesting user owns this attempt
+  if (attempt.userId !== userId) {
+    throw new ApiError(403, "You do not have permission to view this solution");
+  }
+
+  // Logic: Solutions are only visible AFTER submission
+  if (attempt.status !== "SUBMITTED") {
+    throw new ApiError(400, "Test is still in progress. Submit it to view solutions.");
+  }
+
+  // 3. Format Data for Frontend
+  // We transform the DB structure into a clean UI-ready format
+  const formattedSolutions = attempt.answers.map((ans) => {
+    const q = ans.question;
+    
+    // Determine status
+    let status = "UNATTEMPTED";
+    if (ans.selectedOption !== null) {
+      status = ans.selectedOption === q.correctOption ? "CORRECT" : "INCORRECT";
+    }
+
+    return {
+      id: q.id,
+      questionText: q.questionText,
+      questionImage: q.questionImageUrl,
+      options: [q.option1, q.option2, q.option3, q.option4],
+      
+      // The Answer Key
+      userSelectedOption: ans.selectedOption, // 1, 2, 3, 4 or null
+      correctOption: q.correctOption,         // 1, 2, 3, 4
+      
+      // The Explanation
+      explanation: q.explanation,
+      explanationImage: q.explanationImageUrl,
+      
+      // Metadata
+      status: status, // CORRECT | INCORRECT | UNATTEMPTED
+      marks: ans.marksObtained,
+      timeSpent: ans.timeSpent, // in seconds
+      difficulty: q.difficultyLevel
+    };
+  });
+
+  // 4. Calculate Summary Stats
+  const summary = {
+    testName: attempt.test.name,
+    totalScore: attempt.totalMarks,
+    maxScore: attempt.test.totalQuestions * Number(attempt.test.positiveMarks),
+    accuracy: attempt.attemptedCount > 0 
+      ? Math.round((attempt.correctCount / attempt.attemptedCount) * 100) 
+      : 0,
+    timeTakenSeconds: Math.floor((new Date(attempt.submittedAt!).getTime() - new Date(attempt.startedAt).getTime()) / 1000),
+    correctCount: attempt.correctCount,
+    incorrectCount: attempt.incorrectCount,
+    unattemptedCount: attempt.test.totalQuestions - attempt.attemptedCount
+  };
+
+  return res.status(200).json(
+    new ApiResponse(200, { summary, questions: formattedSolutions }, "Solutions fetched successfully")
+  );
 });

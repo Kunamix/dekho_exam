@@ -8,6 +8,7 @@ import {
   getDashboardCharts,
   getDashboardStats,
   getRecentUsersWidget,
+  getReportsAnalytics,
 } from "@/controllers/dashboard/dashboard.controller";
 import {
   getPaymentHistory,
@@ -30,6 +31,7 @@ router.get("/dashboard/get-tests-list", verifyToken, verifyAdmin, getTestsList);
 
 // dashboard
 router.get("/dashboard/get-dashboard-stats", verifyToken, verifyAdmin, getDashboardStats);
+router.get("/dashboard/get-reports-analytics", verifyToken, verifyAdmin, getReportsAnalytics);
 router.get(
   "/dashboard/get-dashboard-charts",
   verifyToken,
