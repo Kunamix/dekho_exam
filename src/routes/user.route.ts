@@ -14,26 +14,26 @@ import { Router } from "express";
 
 const router = Router();
 
-router.get("/user/users", verifyToken, verifyAdmin, getAllUsers);
+router.get("/user/get-all-users", verifyToken, verifyAdmin, getAllUsers);
 router.get("/user/users/stats", verifyToken, verifyAdmin, getUserStats);
-router.get("/user/users/search", verifyToken, verifyAdmin, searchUsers);
-router.get("/user/users/:id", verifyToken, verifyAdmin, getUserById);
-router.put("/user/users/:id", verifyToken, verifyAdmin, updateUser);
+router.get("/user/search", verifyToken, verifyAdmin, searchUsers);
+router.get("/user/get-user-by-id/:id", verifyToken, verifyAdmin, getUserById);
+router.put("/user/update-user/:id", verifyToken, verifyAdmin, updateUser);
 router.post(
-  "/user/users/:id/toggle-ban",
+  "/user/:id/toggle-ban",
   verifyToken,
   verifyAdmin,
   toggleUserBan,
 );
-router.delete("/user/users/:id", verifyToken, verifyAdmin, deleteUser);
+router.delete("/user/delete-user/:id", verifyToken, verifyAdmin, deleteUser);
 router.post(
-  "/user/users/:id/reset-free-tests",
+  "/user/:id/reset-free-tests",
   verifyToken,
   verifyAdmin,
   resetUserFreeTests,
 );
 router.post(
-  "/user/users/:id/invalidate-sessions",
+  "/user/:id/invalidate-sessions",
   verifyToken,
   verifyAdmin,
   invalidateUserSessions,
