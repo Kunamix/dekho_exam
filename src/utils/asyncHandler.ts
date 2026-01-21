@@ -3,18 +3,10 @@ import { Request, Response, NextFunction } from "express";
 type AsyncHandler = (
   request: Request,
   response: Response,
-  next: NextFunction
-) => Promise<unknown>;
+  next: NextFunction,
+) => Promise<any>;
 
-export const asyncHandler = (function_: AsyncHandler | any) => {
-  return (request: Request, response: Response, next: NextFunction) => {
-    try {
-      const result = function_(request, response, next);
-      if (request instanceof Promise) {
-        result.catch(next);
-      }
-    } catch (error) {
-      next(error);
-    }
+export const asyncHandler =
+  (fn: AsyncHandler) => (req: Request, res: Response, next: NextFunction) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
   };
-};
