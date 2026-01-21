@@ -15,8 +15,8 @@ router.put("/subscription/update-subscription/:id", verifyToken, verifyAdmin, up
 router.delete("/subscription/delete-subscription/:id", verifyToken, verifyAdmin, deleteSubscriptionPlan);
 
 
-router.get("/subscription/user-subscriptions", verifyToken, verifyAdmin, getAllUserSubscriptions);
-router.post("/subscription/user-subscriptions", verifyToken, verifyAdmin, createUserSubscription);
+router.get("/subscription/get-all-user-subscription", verifyToken, verifyAdmin, getAllUserSubscriptions);
+router.post("/subscription/create-user-subscription", verifyToken, verifyAdmin, createUserSubscription);
 router.post("/subscription/user-subscriptions/:id/cancel", verifyToken, verifyAdmin, cancelUserSubscription);
 router.post("/subscription/user-subscriptions/:id/extend", verifyToken, verifyAdmin, extendUserSubscription);
 

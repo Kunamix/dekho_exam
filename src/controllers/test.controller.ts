@@ -997,3 +997,101 @@ export const cloneTest = asyncHandler(async (req: Request, res: Response) => {
     .status(201)
     .json(new ApiResponse(201, clonedTest, "Test cloned successfully"));
 });
+
+// Naman sir 
+export const getTestsByCategory = asyncHandler(async (req: Request, res: Response) => {
+  const { categoryId } = req.params;
+  const userId = (req as any).user.userId;
+
+  if (!categoryId) throw new ApiError(400, "Category ID is required");
+
+  const tests = await prisma.test.findMany({
+    where: { categoryId:categoryId.toString(), isActive: true },
+    orderBy: { createdAt: "desc" },
+    include: {
+      // Check if user has attempted this test
+      testAttempts: {
+        where: { userId },
+        select: { status: true, id: true },
+        take: 1, // We only need to know if an attempt exists
+        orderBy: { createdAt: 'desc' }
+      }
+    }
+  });
+
+  const formatted = tests.map(test => {
+    const lastAttempt = test.testAttempts[0];
+    let attemptStatus = "NOT_STARTED";
+    
+    if (lastAttempt) {
+      attemptStatus = lastAttempt.status; // IN_PROGRESS, SUBMITTED, etc.
+    }
+
+    return {
+      id: test.id,
+      name: test.name,
+      description: test.description,
+      totalQuestions: test.totalQuestions,
+      durationMinutes: test.durationMinutes,
+      isPaid: test.isPaid,
+      attemptStatus, // Frontend uses this to show "Start", "Resume", or "View Result"
+      lastAttemptId: lastAttempt?.id || null
+    };
+  });
+
+  return res.status(200).json(new ApiResponse(200, formatted, "Tests fetched successfully"));
+});
+
+// 3. Get Popular / Recommended Tests
+export const getPopularTests = asyncHandler(async (req: Request, res: Response) => {
+  // Logic: Fetch top 5 tests with most attempts (simplified here as fetching any active tests)
+  // In production, you might sort by 'attempts count' if you add that field.
+  const tests = await prisma.test.findMany({
+    where: { isActive: true },
+    take: 5,
+    orderBy: { createdAt: "desc" }, // Or order by popularity logic
+    select: {
+      id: true,
+      name: true,
+      totalQuestions: true,
+      durationMinutes: true,
+      isPaid: true,
+      category: {
+        select: { name: true }
+      }
+    }
+  });
+
+  return res.status(200).json(new ApiResponse(200, tests, "Popular tests fetched"));
+});
+
+// 4. Get Attempt History
+export const getAttemptHistory = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as any).user.userId;
+
+  const attempts = await prisma.testAttempt.findMany({
+    where: { 
+      userId,
+      status: "SUBMITTED" 
+    },
+    orderBy: { submittedAt: "desc" },
+    include: {
+      test: {
+        select: { name: true, totalQuestions: true }
+      }
+    }
+  });
+
+  const formatted = attempts.map(a => ({
+    attemptId: a.id,
+    testName: a.test.name,
+    score: Number(a.totalMarks),
+    percentage: Number(a.percentage),
+    submittedAt: a.submittedAt,
+    accuracy: a.attemptedCount > 0 
+      ? Math.round((a.correctCount / a.attemptedCount) * 100) 
+      : 0
+  }));
+
+  return res.status(200).json(new ApiResponse(200, formatted, "History fetched"));
+});
