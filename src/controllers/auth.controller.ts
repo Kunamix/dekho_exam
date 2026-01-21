@@ -369,3 +369,74 @@ export const updateProfile = asyncHandler(
       .json(new ApiResponse(200, updatedUser, "Profile updated successfully"));
   },
 );
+
+export const updatePassword = asyncHandler(
+  async (req: Request, res: Response) => {
+    const userId = (req as any).user?.userId;
+    const { currentPassword, newPassword } = req.body;
+
+    if (!userId) {
+      throw new ApiError(401, "Unauthorized request");
+    }
+
+    if (!newPassword) {
+      throw new ApiError(400, "New password is required");
+    }
+
+    // 1️⃣ Get user with password
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        password: true,
+      },
+    });
+
+    if (!user) {
+      throw new ApiError(404, "User not found");
+    }
+
+    // 2️⃣ If password EXISTS → verify current password
+    if (user.password) {
+      if (!currentPassword) {
+        throw new ApiError(
+          400,
+          "Current password is required"
+        );
+      }
+
+      const isMatch = await bcrypt.compare(
+        currentPassword,
+        user.password
+      );
+
+      if (!isMatch) {
+        throw new ApiError(401, "Current password is incorrect");
+      }
+    }
+
+    // 3️⃣ Hash new password
+    const hashedPassword = await authHelper.signHash(newPassword);
+
+    // 4️⃣ Update password
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        password: hashedPassword,
+      },
+    });
+
+    // 5️⃣ OPTIONAL BUT RECOMMENDED: logout all sessions
+    await prisma.session.deleteMany({
+      where: { userId },
+    });
+
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        null,
+        "Password updated successfully. Please login again."
+      )
+    );
+  }
+);

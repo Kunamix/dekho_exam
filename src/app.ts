@@ -30,6 +30,7 @@ import adminRouter from "@/routes/admin.auth.route";
 import authRouter from "@/routes/auth.route";
 import categoryRouter from "@/routes/category.route"
 import dashboardRouter from "@/routes/dashboard.route"
+import paymentRouter from "@/routes/payment.route"
 import questionRouter from "@/routes/question.route";
 import subjectRouter from "@/routes/subject.route";
 import subscriptionRouter from "@/routes/subscription.route"
@@ -39,7 +40,7 @@ import userRouter from "@/routes/user.route";
 
 app.use("/api/v1/health-check",healthRouter);
 
-app.use("/api/v1",adminRouter,authRouter,categoryRouter,dashboardRouter,questionRouter,subjectRouter,subscriptionRouter,testRouter,topicRouter,userRouter);
+app.use("/api/v1",adminRouter,authRouter,categoryRouter,dashboardRouter,paymentRouter,questionRouter,subjectRouter,subscriptionRouter,testRouter,topicRouter,userRouter);
 
 
 app.use(notFoundHandler);

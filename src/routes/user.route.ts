@@ -1,3 +1,4 @@
+import { updatePassword, updateProfile, uploadAvatar } from "@/controllers/auth.controller";
 import {
   deleteUser,
   getAllUsers,
@@ -10,6 +11,7 @@ import {
   updateUser,
 } from "@/controllers/user.controller";
 import { verifyAdmin, verifyToken } from "@/middlewares/auth.middleware";
+import { upload } from "@/middlewares/multer.midlleware";
 import { Router } from "express";
 
 const router = Router();
@@ -38,5 +40,8 @@ router.post(
   verifyAdmin,
   invalidateUserSessions,
 );
+
+router.put("/user/update-profile",verifyToken,updateProfile);
+router.put("/user/update-password",verifyToken,verifyAdmin,updatePassword);
 
 export default router;
