@@ -5,12 +5,12 @@ import {Router } from 'express'
 
 
 const router = Router();
-router.post("/tests", verifyToken, verifyAdmin, createTest);
-router.get("/tests", verifyToken, verifyAdmin, getAllTests);
-router.get("/tests/stats", verifyToken, verifyAdmin, getTestStats);
-router.get("/tests/:id", verifyToken, verifyAdmin, getTestById);
-router.put("/tests/:id", verifyToken, verifyAdmin, updateTest);
-router.delete("/tests/:id", verifyToken, verifyAdmin, deleteTest);
-router.post("/tests/:id/clone", verifyToken, verifyAdmin, cloneTest);
+router.post("/test/tests", verifyToken, verifyAdmin, createTest);
+router.get("/test/tests", verifyToken, verifyAdmin, getAllTests);
+router.get("/test/tests/stats", verifyToken, verifyAdmin, getTestStats);
+router.get("/test/tests/:id", verifyToken, verifyAdmin, getTestById);
+router.put("/test/tests/:id", verifyToken, verifyAdmin, updateTest);
+router.delete("/test/tests/:id", verifyToken, verifyAdmin, deleteTest);
+router.post("/test/tests/:id/clone", verifyToken, verifyAdmin, cloneTest);
 
 export default router;

@@ -26,12 +26,21 @@ app.disable("x-powered-by");
 
 // Api Routes
 import healthRouter from "@/routes/healthcheck.route";
-import adminRouter from "@/routes/admin.route";
+import adminRouter from "@/routes/admin.auth.route";
+import authRouter from "@/routes/auth.route";
+import categoryRouter from "@/routes/category.route"
+import dashboardRouter from "@/routes/dashboard.route"
+import questionRouter from "@/routes/question.route";
+import subjectRouter from "@/routes/subject.route";
+import subscriptionRouter from "@/routes/subscription.route"
+import testRouter from "@/routes/test.route"
+import topicRouter from "@/routes/topic.route"
+import userRouter from "@/routes/user.route";
 
 app.use("/api/v1/health-check",healthRouter);
 
-// admin dashboard
-app.use("/api/v1/admin",adminRouter);
+app.use("/api/v1",adminRouter,authRouter,categoryRouter,dashboardRouter,questionRouter,subjectRouter,subscriptionRouter,testRouter,topicRouter,userRouter);
+
 
 app.use(notFoundHandler);
 app.use(errorHandler);
