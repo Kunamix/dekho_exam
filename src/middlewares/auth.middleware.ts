@@ -19,13 +19,12 @@ export const verifyToken = asyncHandler(
     if (!token) {
       throw new ApiError(401, "Access token required");
     }
-console.log(token)
     const decoded = authHelper.verifyToken(
       token,
       myEnvironment.ACCESS_SECRET as string,
     );
 
-    console.log(decoded)
+    
 
     const session = await prisma.session.findFirst({
       where: {

@@ -29,6 +29,7 @@ export const admin = asyncHandler(async (req: Request, res: Response) => {
 
 export const adminLogin = asyncHandler(async (req: Request, res: Response) => {
   const { email, password, phoneNumber } = req.body;
+  
   if (!email && !phoneNumber) {
     throw new ApiError(400, "Please provide all filed");
   }
@@ -206,18 +207,18 @@ export const adminVerifyOTP = asyncHandler(
     if (!decodeToken) {
       throw new ApiError(404, "OTP is not valid");
     }
-    console.log(decodeToken)
+   
     const otpRecord = await prisma.oTP.findUnique({
       where: {
         id: decodeToken.otpId,
       },
     });
-    console.log(otpRecord)
+
 
     if (!otpRecord || otpRecord.phoneNumber?.toString() !== decodeToken.phoneNumber.toString()) {
       throw new ApiError(401, "Invalid OTP");
     }
-    console.log("hlelel")
+   
     if (otpRecord.isVerified) {
       throw new ApiError(401, "OTP already used");
     }
@@ -230,7 +231,7 @@ export const adminVerifyOTP = asyncHandler(
       throw new ApiError(401, "Too many attempts");
     }
 
-    console.log(otpCode)
+    
     if (otpRecord.code !== otpCode) {
       await prisma.oTP.update({
         where: { id: decodeToken.otpId },

@@ -269,7 +269,7 @@ export const logout = asyncHandler(async (req: Request, res: Response) => {
 
 export const getMe = asyncHandler(async (req: Request, res: Response) => {
   const userId = (req as any).user?.userId;
-  console.log("userId ",userId)
+  
 
   if (!userId) {
     throw new ApiError(401, "Unauthorized request");

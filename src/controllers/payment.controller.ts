@@ -179,7 +179,7 @@ export const handleRazorpayWebhook = async (req: Request, res: Response) => {
   const event = req.body.event;
   const payload = req.body.payload.payment.entity;
 
-  console.log("Webhook Event:", event, payload.id);
+  
 
   if (event === "payment.captured") {
     const orderId = payload.order_id;
@@ -217,7 +217,7 @@ export const handleRazorpayWebhook = async (req: Request, res: Response) => {
              }
            });
          });
-         console.log(`Webhook: Subscription activated for order ${orderId}`);
+         
        } catch (err) {
          console.error("Webhook Transaction Failed", err);
        }
