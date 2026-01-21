@@ -1,4 +1,4 @@
-import { cancelUserSubscription, createSubscriptionPlan, createUserSubscription, deleteSubscriptionPlan, extendUserSubscription, getAllSubscriptionPlans, getAllUserSubscriptions, getAllUserSubscriptions, getSubscriptionPlanById, getSubscriptionStats, updateSubscriptionPlan } from '@/controllers/subscription.controller';
+import { cancelUserSubscription, createSubscriptionPlan, createUserSubscription, deleteSubscriptionPlan, extendUserSubscription, getAllSubscriptionPlans, getAllUserSubscriptions, getSubscriptionPlanById, getSubscriptionStats, updateSubscriptionPlan } from '@/controllers/subscription.controller';
 import { verifyAdmin, verifyToken } from '@/middlewares/auth.middleware';
 import {Router } from 'express'
 
