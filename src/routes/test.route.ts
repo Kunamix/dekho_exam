@@ -25,7 +25,7 @@ router.get("/test/get-test-by-category-id/:categoryId", verifyToken);
 router.get("/test/get-popular-tests", verifyToken, getPopularTests);
 router.get("/test/attempt-history", verifyToken, getAttemptHistory);
 router.get("/test/get-test-instruction/:testId",verifyToken,getTestInstructions);
-router.get("/test/start-test-attempt/:testId",verifyToken,startTestAttempt);
+router.post("/test/start-test-attempt/:testId",verifyToken,startTestAttempt);
 router.get("/test/get-attempt-questions/:attemptId",verifyToken,getAttemptQuestions);
 router.post("/test/save-answer/:attemptId",verifyToken,saveAnswer);
 router.post("/test/submit-test/:attemptId",verifyToken,submitTest);
