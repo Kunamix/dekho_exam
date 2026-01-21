@@ -213,8 +213,9 @@ export const startTest = asyncHandler(async (req: Request, res: Response) => {
     // A. Create the Attempt
     const attempt = await tx.testAttempt.create({
       data: {
-        userId,
-        testId,
+        userId:userId.toString(),
+        testId:testId.toString(),
+        attemptNumber:1,
         totalQuestions: selectedQuestions.length,
         questionIds: selectedQuestions.map(q => q.id), // Store the exact order
         questionSetSeed: Date.now().toString(), // Simple seed reference
@@ -285,7 +286,7 @@ export const submitTest = asyncHandler(async (req: Request, res: Response) => {
   const positiveMarks = Number(attempt.test.positiveMarks);
   const negativeMarks = Number(attempt.test.negativeMarks);
 
-  const processedAnswers = [];
+  const processedAnswers:any = [];
 
   // Iterate through the user's submitted answers
   for (const ans of answers) {
@@ -484,3 +485,473 @@ export const reportIssue = asyncHandler(async (req: Request, res: Response) => {
     new ApiResponse(201, {}, "Report submitted successfully. We will review it shortly.")
   );
 });
+
+// Create Test
+export const createTest = asyncHandler(
+  async (req: Request, res: Response) => {
+    const userId = (req as any).user?.id;
+    const {
+      categoryId,
+      subjectId,
+      name,
+      description,
+      totalQuestions,
+      durationMinutes,
+      positiveMarks,
+      negativeMarks,
+      isPaid,
+      testNumber,
+    } = req.body;
+
+    if (!categoryId || !name || !testNumber) {
+      throw new ApiError(
+        400,
+        "Category ID, test name, and test number are required"
+      );
+    }
+
+    const category = await prisma.category.findUnique({
+      where: { id: categoryId },
+    });
+
+    if (!category) {
+      throw new ApiError(404, "Category not found");
+    }
+
+    if (subjectId) {
+      const subject = await prisma.subject.findUnique({
+        where: { id: subjectId },
+      });
+
+      if (!subject) {
+        throw new ApiError(404, "Subject not found");
+      }
+    }
+
+    // Check for duplicate test number in category
+    const existingTest = await prisma.test.findFirst({
+      where: {
+        categoryId,
+        testNumber: Number(testNumber),
+      },
+    });
+
+    if (existingTest) {
+      throw new ApiError(
+        409,
+        "Test with this number already exists in this category"
+      );
+    }
+
+    const test = await prisma.test.create({
+      data: {
+        categoryId,
+        subjectId,
+        name,
+        description,
+        totalQuestions: Number(totalQuestions) || 100,
+        durationMinutes: Number(durationMinutes) || 60,
+        positiveMarks: positiveMarks || 1.0,
+        negativeMarks: negativeMarks || 0.25,
+        isPaid: isPaid || false,
+        testNumber: Number(testNumber),
+        createdById: userId,
+      },
+    });
+
+    return res
+      .status(201)
+      .json(new ApiResponse(201, test, "Test created successfully"));
+  }
+);
+
+// Get All Tests
+export const getAllTests = asyncHandler(
+  async (req: Request, res: Response) => {
+    const {
+      page = 1,
+      limit = 10,
+      isActive,
+      isPaid,
+      search,
+      categoryId,
+      subjectId,
+    } = req.query;
+
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const where: any = {};
+
+    if (isActive !== undefined) {
+      where.isActive = isActive === "true";
+    }
+
+    if (isPaid !== undefined) {
+      where.isPaid = isPaid === "true";
+    }
+
+    if (search) {
+      where.OR = [
+        { name: { contains: search as string, mode: "insensitive" } },
+        { description: { contains: search as string, mode: "insensitive" } },
+      ];
+    }
+
+    if (categoryId) {
+      where.categoryId = categoryId as string;
+    }
+
+    if (subjectId) {
+      where.subjectId = subjectId as string;
+    }
+
+    const [tests, total] = await Promise.all([
+      prisma.test.findMany({
+        where,
+        skip,
+        take: Number(limit),
+        orderBy: [{ testNumber: "asc" }, { createdAt: "desc" }],
+        include: {
+          category: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          subject: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          _count: {
+            select: {
+              testAttempts: true,
+            },
+          },
+          createdBy: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+        },
+      }),
+      prisma.test.count({ where }),
+    ]);
+
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        {
+          tests,
+          pagination: {
+            total,
+            page: Number(page),
+            limit: Number(limit),
+            totalPages: Math.ceil(total / Number(limit)),
+          },
+        },
+        "Tests fetched successfully"
+      )
+    );
+  }
+);
+
+// Get Single Test
+export const getTestById = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { id } = req.params;
+
+    const test = await prisma.test.findUnique({
+      where: { id:id.toString() },
+      include: {
+        category: {
+          select: {
+            id: true,
+            name: true,
+            categorySubjects: {
+              include: {
+                subject: {
+                  select: {
+                    id: true,
+                    name: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        subject: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        testAttempts: {
+          select: {
+            id: true,
+            userId: true,
+            attemptNumber: true,
+            status: true,
+            totalMarks: true,
+            percentage: true,
+            submittedAt: true,
+          },
+          orderBy: { createdAt: "desc" },
+          take: 10,
+        },
+        _count: {
+          select: {
+            testAttempts: true,
+          },
+        },
+        createdBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
+    });
+
+    if (!test) {
+      throw new ApiError(404, "Test not found");
+    }
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, test, "Test fetched successfully"));
+  }
+);
+
+// Update Test
+export const updateTest = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const {
+      name,
+      description,
+      totalQuestions,
+      durationMinutes,
+      positiveMarks,
+      negativeMarks,
+      isPaid,
+      testNumber,
+      isActive,
+    } = req.body;
+
+    const test = await prisma.test.findUnique({
+      where: { id:id.toString() },
+    });
+
+    if (!test) {
+      throw new ApiError(404, "Test not found");
+    }
+
+    // Check for duplicate test number if updating
+    if (testNumber && Number(testNumber) !== test.testNumber) {
+      const existingTest = await prisma.test.findFirst({
+        where: {
+          categoryId: test.categoryId,
+          testNumber: Number(testNumber),
+          id: { not: id.toString() },
+        },
+      });
+
+      if (existingTest) {
+        throw new ApiError(
+          409,
+          "Test with this number already exists in this category"
+        );
+      }
+    }
+
+    const updatedTest = await prisma.test.update({
+      where: { id:id.toString() },
+      data: {
+        name,
+        description,
+        totalQuestions: totalQuestions ? Number(totalQuestions) : undefined,
+        durationMinutes: durationMinutes ? Number(durationMinutes) : undefined,
+        positiveMarks,
+        negativeMarks,
+        isPaid,
+        testNumber: testNumber ? Number(testNumber) : undefined,
+        isActive,
+      },
+    });
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, updatedTest, "Test updated successfully"));
+  }
+);
+
+// Delete Test
+export const deleteTest = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { id } = req.params;
+
+    const test = await prisma.test.findUnique({
+      where: { id:id.toString() },
+      include: {
+        _count: {
+          select: {
+            testAttempts: true,
+          },
+        },
+      },
+    });
+
+    if (!test) {
+      throw new ApiError(404, "Test not found");
+    }
+
+    if (test._count.testAttempts > 0) {
+      // Soft delete if test has attempts
+      await prisma.test.update({
+        where: { id:id.toString() },
+        data: { isActive: false },
+      });
+
+      return res
+        .status(200)
+        .json(
+          new ApiResponse(
+            200,
+            {},
+            "Test has been deactivated (soft deleted) as it has associated attempts"
+          )
+        );
+    }
+
+    // Hard delete if no attempts
+    await prisma.test.delete({
+      where: { id:id.toString() },
+    });
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, {}, "Test deleted successfully"));
+  }
+);
+
+// Get Test Statistics
+export const getTestStats = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { testId } = req.query;
+
+    const where: any = {};
+
+    if (testId) {
+      where.testId = testId as string;
+    }
+
+    const [
+      totalAttempts,
+      submittedAttempts,
+      averageScore,
+      averagePercentage,
+      completionRate,
+    ] = await Promise.all([
+      prisma.testAttempt.count({ where }),
+      prisma.testAttempt.count({
+        where: { ...where, status: "SUBMITTED" },
+      }),
+      prisma.testAttempt.aggregate({
+        where: { ...where, status: "SUBMITTED" },
+        _avg: {
+          totalMarks: true,
+        },
+      }),
+      prisma.testAttempt.aggregate({
+        where: { ...where, status: "SUBMITTED" },
+        _avg: {
+          percentage: true,
+        },
+      }),
+      prisma.testAttempt.groupBy({
+        by: ["status"],
+        where,
+        _count: true,
+      }),
+    ]);
+
+    const stats = {
+      totalAttempts,
+      submittedAttempts,
+      inProgressAttempts: totalAttempts - submittedAttempts,
+      averageScore: averageScore._avg.totalMarks || 0,
+      averagePercentage: averagePercentage._avg.percentage || 0,
+      statusBreakdown: completionRate.reduce((acc, curr) => {
+        acc[curr.status] = curr._count;
+        return acc;
+      }, {} as any),
+    };
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(200, stats, "Test statistics fetched successfully")
+      );
+  }
+);
+
+// Clone Test
+export const cloneTest = asyncHandler(
+  async (req: Request, res: Response) => {
+    const userId = (req as any).user?.id;
+    const { id } = req.params;
+    const { testNumber } = req.body;
+
+    if (!testNumber) {
+      throw new ApiError(400, "Test number is required for cloning");
+    }
+
+    const originalTest = await prisma.test.findUnique({
+      where: { id:id.toString() },
+    });
+
+    if (!originalTest) {
+      throw new ApiError(404, "Test not found");
+    }
+
+    // Check for duplicate test number
+    const existingTest = await prisma.test.findFirst({
+      where: {
+        categoryId: originalTest.categoryId,
+        testNumber: Number(testNumber),
+      },
+    });
+
+    if (existingTest) {
+      throw new ApiError(
+        409,
+        "Test with this number already exists in this category"
+      );
+    }
+
+    const clonedTest = await prisma.test.create({
+      data: {
+        categoryId: originalTest.categoryId,
+        subjectId: originalTest.subjectId,
+        name: `${originalTest.name} (Copy)`,
+        description: originalTest.description,
+        totalQuestions: originalTest.totalQuestions,
+        durationMinutes: originalTest.durationMinutes,
+        positiveMarks: originalTest.positiveMarks,
+        negativeMarks: originalTest.negativeMarks,
+        isPaid: originalTest.isPaid,
+        testNumber: Number(testNumber),
+        createdById: userId,
+      },
+    });
+
+    return res
+      .status(201)
+      .json(new ApiResponse(201, clonedTest, "Test cloned successfully"));
+  }
+);

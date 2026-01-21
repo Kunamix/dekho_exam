@@ -205,7 +205,6 @@ model Payment {
 }
 
 // Exam structure
-
 model Category {
   id           String   @id @default(uuid())
   name         String   @unique
@@ -279,7 +278,6 @@ model Topic {
 }
 
 // Questions & tests
-
 model Question {
   id                  String          @id @default(uuid())
   topicId             String
