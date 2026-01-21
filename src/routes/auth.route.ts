@@ -4,9 +4,9 @@ import { Router } from "express";
 
 const router = Router();
 
-router.post("auth/login",login);
-router.post("auth/verify-otp",verifyOTP);
-router.post('auth/logout',verifyToken,logout);
-router.get('auth/me',verifyToken,getMe);
+router.post("/auth/login", login);
+router.post("/auth/verify-otp", verifyOTP);
+router.post("/auth/logout", verifyToken, logout);
+router.get("/auth/me", verifyToken, getMe);
 
 export default router;
