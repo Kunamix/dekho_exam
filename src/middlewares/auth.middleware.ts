@@ -4,6 +4,7 @@ import { authHelper } from "@/helpers/tokenGenerateAndVerify";
 import { ApiError } from "@/utils/ApiError";
 import { asyncHandler } from "@/utils/asyncHandler";
 import { NextFunction, Request, Response } from "express";
+// import { decode } from "node:punycode";
 
 export interface AuthRequest extends Request {
   user?: {
@@ -18,11 +19,13 @@ export const verifyToken = asyncHandler(
     if (!token) {
       throw new ApiError(401, "Access token required");
     }
-
+console.log(token)
     const decoded = authHelper.verifyToken(
       token,
       myEnvironment.ACCESS_SECRET as string,
     );
+
+    console.log(decoded)
 
     const session = await prisma.session.findFirst({
       where: {
@@ -30,6 +33,7 @@ export const verifyToken = asyncHandler(
         userId: decoded.id,
       },
     });
+    
 
     if (!session) {
       throw new ApiError(401, "Invalid or expired session");
@@ -44,7 +48,7 @@ export const verifyToken = asyncHandler(
     }
 
     (req as AuthRequest).user = {
-      userId: decoded.userId,
+      userId: decoded.id,
     };
 
     next();

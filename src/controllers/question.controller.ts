@@ -2,14 +2,14 @@ import { Request, Response } from "express";
 import { asyncHandler } from "../utils/asyncHandler";
 import { ApiError } from "../utils/ApiError";
 import { ApiResponse } from "../utils/ApiResponse";
-import {prisma} from "@/database/db";
+import { prisma } from "@/database/db";
 import csv from "csv-parser";
 import { Readable } from "stream";
 
 // Create Question
 export const createQuestion = asyncHandler(
   async (req: Request, res: Response) => {
-    const userId = (req as any).user?.id;
+    const userId = (req as any).user?.userId;
     const {
       topicId,
       questionText,
@@ -68,7 +68,7 @@ export const createQuestion = asyncHandler(
     return res
       .status(201)
       .json(new ApiResponse(201, question, "Question created successfully"));
-  }
+  },
 );
 
 // Get All Questions
@@ -156,10 +156,10 @@ export const getAllQuestions = asyncHandler(
             totalPages: Math.ceil(total / Number(limit)),
           },
         },
-        "Questions fetched successfully"
-      )
+        "Questions fetched successfully",
+      ),
     );
-  }
+  },
 );
 
 // Get Single Question
@@ -168,7 +168,7 @@ export const getQuestionById = asyncHandler(
     const { id } = req.params;
 
     const question = await prisma.question.findUnique({
-      where: { id:id.toString() },
+      where: { id: id.toString() },
       include: {
         topic: {
           include: {
@@ -197,7 +197,7 @@ export const getQuestionById = asyncHandler(
     return res
       .status(200)
       .json(new ApiResponse(200, question, "Question fetched successfully"));
-  }
+  },
 );
 
 // Update Question
@@ -219,7 +219,7 @@ export const updateQuestion = asyncHandler(
     } = req.body;
 
     const question = await prisma.question.findUnique({
-      where: { id:id.toString() },
+      where: { id: id.toString() },
     });
 
     if (!question) {
@@ -231,7 +231,7 @@ export const updateQuestion = asyncHandler(
     }
 
     const updatedQuestion = await prisma.question.update({
-      where: { id:id.toString() },
+      where: { id: id.toString() },
       data: {
         questionText,
         questionImageUrl,
@@ -250,9 +250,9 @@ export const updateQuestion = asyncHandler(
     return res
       .status(200)
       .json(
-        new ApiResponse(200, updatedQuestion, "Question updated successfully")
+        new ApiResponse(200, updatedQuestion, "Question updated successfully"),
       );
-  }
+  },
 );
 
 // Delete Question
@@ -261,7 +261,7 @@ export const deleteQuestion = asyncHandler(
     const { id } = req.params;
 
     const question = await prisma.question.findUnique({
-      where: { id:id.toString() },
+      where: { id: id.toString() },
       include: {
         _count: {
           select: {
@@ -278,7 +278,7 @@ export const deleteQuestion = asyncHandler(
     if (question._count.answer > 0) {
       // Soft delete if question has been attempted
       await prisma.question.update({
-        where: { id:id.toString() },
+        where: { id: id.toString() },
         data: { isActive: false },
       });
 
@@ -288,26 +288,26 @@ export const deleteQuestion = asyncHandler(
           new ApiResponse(
             200,
             {},
-            "Question has been deactivated (soft deleted) as it has associated attempts"
-          )
+            "Question has been deactivated (soft deleted) as it has associated attempts",
+          ),
         );
     }
 
     // Hard delete if no attempts
     await prisma.question.delete({
-      where: { id:id.toString() },
+      where: { id: id.toString() },
     });
 
     return res
       .status(200)
       .json(new ApiResponse(200, {}, "Question deleted successfully"));
-  }
+  },
 );
 
 // Bulk Upload Questions via CSV
 export const bulkUploadQuestions = asyncHandler(
   async (req: Request, res: Response) => {
-    const userId = (req as any).user?.id;
+    const userId = (req as any).user?.userId;
     const file = (req as any).file;
 
     if (!file) {
@@ -425,10 +425,10 @@ export const bulkUploadQuestions = asyncHandler(
           failedRows: errors.length,
           errors: errors.length > 0 ? errors : undefined,
         },
-        `Bulk upload completed. ${createdCount} questions created, ${errors.length} failed.`
-      )
+        `Bulk upload completed. ${createdCount} questions created, ${errors.length} failed.`,
+      ),
     );
-  }
+  },
 );
 
 // Get Question Statistics
@@ -471,7 +471,7 @@ export const getQuestionStats = asyncHandler(
     return res
       .status(200)
       .json(
-        new ApiResponse(200, stats, "Question statistics fetched successfully")
+        new ApiResponse(200, stats, "Question statistics fetched successfully"),
       );
-  }
+  },
 );

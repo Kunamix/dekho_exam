@@ -8,7 +8,7 @@ import { asyncHandler } from "@/utils/asyncHandler";
 import { Request, Response } from "express";
 
 export const admin = asyncHandler(async (req: Request, res: Response) => {
-  const userId = (req as any).user?.id;
+  const userId = (req as any).user?.userId;
 
   if (!userId) {
     throw new ApiError(400, "Your session is expired");
@@ -333,7 +333,7 @@ export const adminVerifyOTP = asyncHandler(
 );
 
 export const adminLogout = asyncHandler(async (req: Request, res: Response) => {
-  const userId = (req as any).user?.id;
+  const userId = (req as any).user?.userId;
 
   if (!userId) {
     throw new ApiError(401, "Unauthorized");
@@ -351,7 +351,7 @@ export const adminLogout = asyncHandler(async (req: Request, res: Response) => {
 
 export const adminChangePassword = asyncHandler(
   async (req: Request, res: Response) => {
-    const userId = (req as any).user?.id;
+    const userId = (req as any).user?.userId;
     const { currentPassword, newPassword } = req.body;
 
     if (!userId) {

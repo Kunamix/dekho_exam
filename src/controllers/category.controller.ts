@@ -7,7 +7,7 @@ import { Request, Response } from "express";
 // Create Category
 export const createCategory = asyncHandler(
   async (req: Request, res: Response) => {
-    const userId = (req as any).user?.id;
+    const userId = (req as any).user?.userId;
     const { name, description, imageUrl, displayOrder } = req.body;
 
     if (!name) {
@@ -35,7 +35,7 @@ export const createCategory = asyncHandler(
     return res
       .status(201)
       .json(new ApiResponse(201, category, "Category created successfully"));
-  }
+  },
 );
 
 // Get All Categories
@@ -93,10 +93,10 @@ export const getAllCategories = asyncHandler(
             totalPages: Math.ceil(total / Number(limit)),
           },
         },
-        "Categories fetched successfully"
-      )
+        "Categories fetched successfully",
+      ),
     );
-  }
+  },
 );
 
 // Get Single Category
@@ -105,7 +105,7 @@ export const getCategoryById = asyncHandler(
     const { id } = req.params;
 
     const category = await prisma.category.findUnique({
-      where: { id:id.toString() },
+      where: { id: id.toString() },
       include: {
         categorySubjects: {
           include: {
@@ -149,7 +149,7 @@ export const getCategoryById = asyncHandler(
     return res
       .status(200)
       .json(new ApiResponse(200, category, "Category fetched successfully"));
-  }
+  },
 );
 
 // Update Category
@@ -159,7 +159,7 @@ export const updateCategory = asyncHandler(
     const { name, description, imageUrl, displayOrder, isActive } = req.body;
 
     const category = await prisma.category.findUnique({
-      where: { id:id.toString() },
+      where: { id: id.toString() },
     });
 
     if (!category) {
@@ -177,7 +177,7 @@ export const updateCategory = asyncHandler(
     }
 
     const updatedCategory = await prisma.category.update({
-      where: { id:id.toString() },
+      where: { id: id.toString() },
       data: {
         name,
         description,
@@ -190,9 +190,9 @@ export const updateCategory = asyncHandler(
     return res
       .status(200)
       .json(
-        new ApiResponse(200, updatedCategory, "Category updated successfully")
+        new ApiResponse(200, updatedCategory, "Category updated successfully"),
       );
-  }
+  },
 );
 
 // Delete Category
@@ -201,7 +201,7 @@ export const deleteCategory = asyncHandler(
     const { id } = req.params;
 
     const category = await prisma.category.findUnique({
-      where: { id:id.toString() },
+      where: { id: id.toString() },
       include: {
         _count: {
           select: {
@@ -219,18 +219,18 @@ export const deleteCategory = asyncHandler(
     if (category._count.tests > 0 || category._count.categorySubjects > 0) {
       throw new ApiError(
         400,
-        "Cannot delete category with associated tests or subjects"
+        "Cannot delete category with associated tests or subjects",
       );
     }
 
     await prisma.category.delete({
-      where: { id:id.toString() },
+      where: { id: id.toString() },
     });
 
     return res
       .status(200)
       .json(new ApiResponse(200, {}, "Category deleted successfully"));
-  }
+  },
 );
 
 // Assign Subjects to Category
@@ -244,7 +244,7 @@ export const assignSubjectsToCategory = asyncHandler(
     }
 
     const category = await prisma.category.findUnique({
-      where: { id:id.toString() },
+      where: { id: id.toString() },
     });
 
     if (!category) {
@@ -272,8 +272,8 @@ export const assignSubjectsToCategory = asyncHandler(
         new ApiResponse(
           200,
           categorySubjects,
-          "Subjects assigned to category successfully"
-        )
+          "Subjects assigned to category successfully",
+        ),
       );
-  }
+  },
 );

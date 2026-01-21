@@ -45,6 +45,12 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
     },
   );
 
+  res.cookie("verificationToken", verificationToken, {
+    httpOnly: true,
+    secure: myEnvironment.NODE_ENV === "production",
+    maxAge: 15 * 60 * 1000,
+    sameSite: "strict",
+  });
   // 7. Send Response
   return res.status(200).json(
     new ApiResponse(
@@ -60,7 +66,20 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const verifyOTP = asyncHandler(async (req: Request, res: Response) => {
-  const { otpCode, deviceId, deviceName, deviceType } = req.body;
+  const { otpCode } = req.body;
+
+  // deviceId (from header or fallback)
+  const deviceId =
+    req.headers["x-device-id"]?.toString() ??
+    req.cookies?.deviceId ??
+    "unknown-device";
+
+  // user-agent string
+  const userAgent = req.headers["user-agent"] ?? "unknown";
+
+  // derive device info
+  const deviceName = userAgent;
+  const deviceType = /mobile/i.test(userAgent) ? "MOBILE" : "WEB";
 
   const token =
     req.headers.authorization?.split(" ")[1] || req.cookies?.verificationToken;
@@ -188,23 +207,34 @@ export const verifyOTP = asyncHandler(async (req: Request, res: Response) => {
       return { user, accessToken, refreshToken };
     },
   );
-  return res
-    .status(200)
-    .json(
-      new ApiResponse(
-        200,
-        {
-          user,
-          accessToken,
-          refreshToken,
-        },
-        "User verified and logged in successfully",
-      ),
-    );
+  res.cookie("accessToken", accessToken, {
+    httpOnly: true,
+    secure: myEnvironment.NODE_ENV === "production",
+    maxAge: 15 * 60 * 1000,
+    sameSite: "strict",
+  });
+
+  res.cookie("refreshToken", refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    sameSite: "strict",
+  });
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        user,
+        accessToken,
+        refreshToken,
+      },
+      "User verified and logged in successfully",
+    ),
+  );
 });
 
 export const logout = asyncHandler(async (req: Request, res: Response) => {
-  const userId = (req as any).user?.id;
+  const userId = (req as any).user?.userId;
 
   // 1. Get the Refresh Token from cookies or body
   // We need this to identify *which* specific device/session to log out.
@@ -238,7 +268,8 @@ export const logout = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const getMe = asyncHandler(async (req: Request, res: Response) => {
-  const userId = (req as any).user?.id;
+  const userId = (req as any).user?.userId;
+  console.log("userId ",userId)
 
   if (!userId) {
     throw new ApiError(401, "Unauthorized request");
@@ -271,66 +302,70 @@ export const getMe = asyncHandler(async (req: Request, res: Response) => {
     .json(new ApiResponse(200, user, "User profile fetched successfully"));
 });
 
+export const updateProfile = asyncHandler(
+  async (req: Request, res: Response) => {
+    const userId = (req as any).user?.userId;
+    const { name, email } = req.body;
 
-export const updateProfile = asyncHandler(async (req: Request, res: Response) => {
-  const userId = (req as any).user?.id;
-  const { name, email } = req.body;
-
-  if (!userId) {
-    throw new ApiError(401, "Unauthorized request");
-  }
-
-  // 1. Validation: Ensure at least one field is provided
-  if (!name && !email) {
-    throw new ApiError(400, "Please provide a name or email to update");
-  }
-
-  // 2. Prepare the data object dynamically
-  const dataToUpdate: any = {};
-
-  // Handle Name Update
-  if (name) {
-    dataToUpdate.name = name;
-  }
-
-  // Handle Email Update
-  if (email) {
-    // A. Check if email is valid format (Basic Regex)
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      throw new ApiError(400, "Invalid email format");
+    if (!userId) {
+      throw new ApiError(401, "Unauthorized request");
     }
 
-    // B. Check if email is already taken by ANOTHER user
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
+    // 1. Validation: Ensure at least one field is provided
+    if (!name && !email) {
+      throw new ApiError(400, "Please provide a name or email to update");
+    }
+
+    // 2. Prepare the data object dynamically
+    const dataToUpdate: any = {};
+
+    // Handle Name Update
+    if (name) {
+      dataToUpdate.name = name;
+    }
+
+    // Handle Email Update
+    if (email) {
+      // A. Check if email is valid format (Basic Regex)
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        throw new ApiError(400, "Invalid email format");
+      }
+
+      // B. Check if email is already taken by ANOTHER user
+      const existingUser = await prisma.user.findUnique({
+        where: { email },
+      });
+
+      if (existingUser && existingUser.id !== userId) {
+        throw new ApiError(
+          409,
+          "Email is already associated with another account",
+        );
+      }
+
+      dataToUpdate.email = email;
+      // Important: If email changes, it is no longer verified
+      dataToUpdate.isEmailVerified = false;
+    }
+
+    // 3. Update User in Database
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: dataToUpdate,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phoneNumber: true,
+        role: true,
+        isEmailVerified: true,
+        updatedAt: true,
+      },
     });
 
-    if (existingUser && existingUser.id !== userId) {
-      throw new ApiError(409, "Email is already associated with another account");
-    }
-
-    dataToUpdate.email = email;
-    // Important: If email changes, it is no longer verified
-    dataToUpdate.isEmailVerified = false; 
-  }
-
-  // 3. Update User in Database
-  const updatedUser = await prisma.user.update({
-    where: { id: userId },
-    data: dataToUpdate,
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      phoneNumber: true,
-      role: true,
-      isEmailVerified: true,
-      updatedAt: true,
-    },
-  });
-
-  return res
-    .status(200)
-    .json(new ApiResponse(200, updatedUser, "Profile updated successfully"));
-});
+    return res
+      .status(200)
+      .json(new ApiResponse(200, updatedUser, "Profile updated successfully"));
+  },
+);
