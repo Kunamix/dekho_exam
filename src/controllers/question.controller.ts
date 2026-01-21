@@ -14,6 +14,7 @@ export const createQuestion = asyncHandler(
       topicId,
       questionText,
       questionImageUrl,
+      subjectId,
       option1,
       option2,
       option3,

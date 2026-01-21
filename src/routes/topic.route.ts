@@ -10,8 +10,8 @@ import { Router } from "express";
 
 const router = Router();
 
-router.post("/topic/topics", verifyToken, verifyAdmin, createTopic);
-router.get("/topic/topics", verifyToken, verifyAdmin, getAllTopics);
+router.post("/topic/create", verifyToken, verifyAdmin, createTopic);
+router.get("/topic/get-all-topics", verifyToken, verifyAdmin, getAllTopics);
 router.get("/topic/topics/:id", verifyToken, verifyAdmin, getTopicById);
 router.put("/topic/topics/:id", verifyToken, verifyAdmin, updateTopic);
 router.delete("/topic/topics/:id", verifyToken, verifyAdmin, deleteTopic);

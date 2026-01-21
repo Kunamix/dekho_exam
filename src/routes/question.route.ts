@@ -13,8 +13,8 @@ import { Router } from "express";
 
 const router = Router();
 
-router.post("/question/questions", verifyToken, verifyAdmin, createQuestion);
-router.get("/question/questions", verifyToken, verifyAdmin, getAllQuestions);
+router.post("/question/create", verifyToken, verifyAdmin, createQuestion);
+router.get("/question/get-all-question", verifyToken, verifyAdmin, getAllQuestions);
 router.get("/question/questions/stats", verifyToken, verifyAdmin, getQuestionStats);
 router.get("/question/questions/:id", verifyToken, verifyAdmin, getQuestionById);
 router.put("/question/questions/:id", verifyToken, verifyAdmin, updateQuestion);

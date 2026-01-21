@@ -10,10 +10,10 @@ import { Router } from "express";
 
 const router = Router();
 
-router.post("/subject/subjects", verifyToken, verifyAdmin, createSubject);
-router.get("/subject/subjects", verifyToken, verifyAdmin, getAllSubjects);
+router.post("/subject/create", verifyToken, verifyAdmin, createSubject);
+router.get("/subject/get-all-subjects", verifyToken, verifyAdmin, getAllSubjects);
 router.get("/subject/subjects/:id", verifyToken, verifyAdmin, getSubjectById);
-router.put("/subject/subjects/:id", verifyToken, verifyAdmin, updateSubject);
-router.delete("/subject/subjects/:id", verifyToken, verifyAdmin, deleteSubject);
+router.patch("/subject/update-subject/:id", verifyToken, verifyAdmin, updateSubject);
+router.delete("/subject/delete-subject/:id", verifyToken, verifyAdmin, deleteSubject);
 
 export default router;

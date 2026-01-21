@@ -7,12 +7,12 @@ import {Router } from 'express'
 const router = Router();
 
 
-router.post("/subscription/subscription-plans", verifyToken, verifyAdmin, createSubscriptionPlan);
-router.get("/subscription/subscription-plans", verifyToken, verifyAdmin, getAllSubscriptionPlans);
-router.get("/subscription/subscription-plans/stats", verifyToken, verifyAdmin, getSubscriptionStats);
-router.get("/subscription/subscription-plans/:id", verifyToken, verifyAdmin, getSubscriptionPlanById);
-router.put("/subscription/subscription-plans/:id", verifyToken, verifyAdmin, updateSubscriptionPlan);
-router.delete("/subscription/subscription-plans/:id", verifyToken, verifyAdmin, deleteSubscriptionPlan);
+router.post("/subscription/create", verifyToken, verifyAdmin, createSubscriptionPlan);
+router.get("/subscription/get-all-subscriptions", verifyToken, verifyAdmin, getAllSubscriptionPlans);
+router.get("/subscription/stats", verifyToken, verifyAdmin, getSubscriptionStats);
+router.get("/subscription/get-subscription-by-id/:id", verifyToken, verifyAdmin, getSubscriptionPlanById);
+router.put("/subscription/update-subscription/:id", verifyToken, verifyAdmin, updateSubscriptionPlan);
+router.delete("/subscription/delete-subscription/:id", verifyToken, verifyAdmin, deleteSubscriptionPlan);
 
 
 router.get("/subscription/user-subscriptions", verifyToken, verifyAdmin, getAllUserSubscriptions);

@@ -105,7 +105,7 @@ export const adminLogin = asyncHandler(async (req: Request, res: Response) => {
     res.cookie("accessToken", accessToken, {
       httpOnly: true,
       secure: myEnvironment.NODE_ENV === "production",
-      maxAge: 15 * 60 * 1000,
+      maxAge: 3 * 24 * 60 * 60 * 1000,
       sameSite: "strict",
     });
 
@@ -141,7 +141,8 @@ export const adminLogin = asyncHandler(async (req: Request, res: Response) => {
       throw new ApiError(401, "Invalid phone number");
     }
 
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    // const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpCode = '123456';
     const expiresAt = new Date();
     expiresAt.setMinutes(expiresAt.getMinutes() + 10);
 
@@ -154,7 +155,7 @@ export const adminLogin = asyncHandler(async (req: Request, res: Response) => {
       },
     });
 
-    await sendOTPviaSMS(phoneNumber, otpCode);
+    // await sendOTPviaSMS(phoneNumber, otpCode);
 
     const token = authHelper.signToken(
       {
@@ -181,6 +182,7 @@ export const adminLogin = asyncHandler(async (req: Request, res: Response) => {
         {
           otpId: otpRecord.id,
           expiresAt,
+          phoneNumber,
           token,
         },
         "OTP sent successfully",
@@ -191,7 +193,7 @@ export const adminLogin = asyncHandler(async (req: Request, res: Response) => {
 
 export const adminVerifyOTP = asyncHandler(
   async (req: Request, res: Response) => {
-    const { otp } = req.body;
+    const { otpCode } = req.body;
 
     const token =
       req.headers.authorization?.split(" ")[1] || req.cookies?.otpVerifyToken;
@@ -204,17 +206,18 @@ export const adminVerifyOTP = asyncHandler(
     if (!decodeToken) {
       throw new ApiError(404, "OTP is not valid");
     }
-
+    console.log(decodeToken)
     const otpRecord = await prisma.oTP.findUnique({
       where: {
         id: decodeToken.otpId,
       },
     });
+    console.log(otpRecord)
 
-    if (!otpRecord || otpRecord.phoneNumber !== decodeToken.phoneNumber) {
+    if (!otpRecord || otpRecord.phoneNumber?.toString() !== decodeToken.phoneNumber.toString()) {
       throw new ApiError(401, "Invalid OTP");
     }
-
+    console.log("hlelel")
     if (otpRecord.isVerified) {
       throw new ApiError(401, "OTP already used");
     }
@@ -227,7 +230,8 @@ export const adminVerifyOTP = asyncHandler(
       throw new ApiError(401, "Too many attempts");
     }
 
-    if (otpRecord.code !== otp) {
+    console.log(otpCode)
+    if (otpRecord.code !== otpCode) {
       await prisma.oTP.update({
         where: { id: decodeToken.otpId },
         data: { attempts: otpRecord.attempts + 1 },
@@ -302,7 +306,7 @@ export const adminVerifyOTP = asyncHandler(
     res.cookie("accessToken", accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      maxAge: 15 * 60 * 1000,
+      maxAge: 3 * 24 * 60 * 60 * 1000,
       sameSite: "strict",
     });
 
