@@ -9,7 +9,7 @@ import logger from "@/logger/winston.logger";
 import crypto from "crypto";
 
 export const createPaymentOrder = asyncHandler(async (req: Request, res:Response) => {
-  const userId = (req as any).user.id;
+  const userId = (req as any).user.userId;
   const {planId} = req.body;
 
   const plan = await prisma.subscriptionPlan.findUnique({
@@ -74,7 +74,7 @@ export const createPaymentOrder = asyncHandler(async (req: Request, res:Response
 });
 
 export const verifyPayment = asyncHandler(async (req: Request, res: Response) => {
-  const userId = (req as any).user.id;
+  const userId = (req as any).user.userId;
   const { 
     razorpay_order_id, 
     razorpay_payment_id, 

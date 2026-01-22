@@ -54,7 +54,7 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
   res.cookie("verificationToken", verificationToken, {
     httpOnly: true,
     secure: myEnvironment.NODE_ENV === "production",
-    maxAge: 15 * 60 * 1000,
+    maxAge: 5 * 60 * 1000,
     sameSite: myEnvironment.NODE_ENV === "production" ? "none" : "lax",
   });
   // 7. Send Response
@@ -222,7 +222,7 @@ export const verifyOTP = asyncHandler(async (req: Request, res: Response) => {
   res.cookie("accessToken", accessToken, {
     httpOnly: true,
     secure: myEnvironment.NODE_ENV === "production",
-    maxAge: 15 * 60 * 1000,
+    maxAge: 3 * 24 * 60 * 60 * 1000,
     sameSite: myEnvironment.NODE_ENV === "production" ? "none" : "lax",
   });
 
