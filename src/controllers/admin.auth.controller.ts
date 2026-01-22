@@ -147,6 +147,12 @@ export const adminLogin = asyncHandler(async (req: Request, res: Response) => {
     const expiresAt = new Date();
     expiresAt.setMinutes(expiresAt.getMinutes() + 10);
 
+     await prisma.oTP.deleteMany({
+      where:{
+        phoneNumber:phoneNumber
+      }
+    });
+
     const otpRecord = await prisma.oTP.create({
       data: {
         phoneNumber,
@@ -155,6 +161,8 @@ export const adminLogin = asyncHandler(async (req: Request, res: Response) => {
         expiresAt,
       },
     });
+
+   
 
     // await sendOTPviaSMS(phoneNumber, otpCode);
 
@@ -242,11 +250,6 @@ export const adminVerifyOTP = asyncHandler(
       throw new ApiError(401, "Invalid OTP");
     }
 
-    await prisma.oTP.update({
-      where: { id: decodeToken.otpId },
-      data: { isVerified: true },
-    });
-
     const admin = await prisma.user.findUnique({
       where: { phoneNumber: decodeToken.phoneNumber },
     });
@@ -258,6 +261,14 @@ export const adminVerifyOTP = asyncHandler(
     await prisma.session.deleteMany({
       where: { userId: admin.id },
     });
+
+    if(admin && otpRecord.code === otpCode){
+      await prisma.oTP.deleteMany({
+        where: {
+          id: decodeToken.otpId
+        }
+      })
+    }
 
     const accessToken = authHelper.signToken(
       {

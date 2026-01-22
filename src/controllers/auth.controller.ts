@@ -25,6 +25,12 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
   const expiresAt = new Date();
   expiresAt.setMinutes(expiresAt.getMinutes() + 5); // 5 Minutes expiration
 
+  await prisma.oTP.deleteMany({
+    where: {
+      phoneNumber: phoneNumber,
+    },
+  });
+
   // 4. Save to Database
   const otpRecord = await prisma.oTP.create({
     data: {
@@ -207,6 +213,12 @@ export const verifyOTP = asyncHandler(async (req: Request, res: Response) => {
       return { user, accessToken, refreshToken };
     },
   );
+
+  await prisma.oTP.deleteMany({
+    where: {
+      phoneNumber: phoneNumber,
+    },
+  });
   res.cookie("accessToken", accessToken, {
     httpOnly: true,
     secure: myEnvironment.NODE_ENV === "production",
@@ -269,7 +281,6 @@ export const logout = asyncHandler(async (req: Request, res: Response) => {
 
 export const getMe = asyncHandler(async (req: Request, res: Response) => {
   const userId = (req as any).user?.userId;
-  
 
   if (!userId) {
     throw new ApiError(401, "Unauthorized request");
@@ -399,16 +410,10 @@ export const updatePassword = asyncHandler(
     // 2️⃣ If password EXISTS → verify current password
     if (user.password) {
       if (!currentPassword) {
-        throw new ApiError(
-          400,
-          "Current password is required"
-        );
+        throw new ApiError(400, "Current password is required");
       }
 
-      const isMatch = await bcrypt.compare(
-        currentPassword,
-        user.password
-      );
+      const isMatch = await authHelper.verifyHash(currentPassword, user.password);
 
       if (!isMatch) {
         throw new ApiError(401, "Current password is incorrect");
@@ -431,12 +436,14 @@ export const updatePassword = asyncHandler(
       where: { userId },
     });
 
-    return res.status(200).json(
-      new ApiResponse(
-        200,
-        null,
-        "Password updated successfully. Please login again."
-      )
-    );
-  }
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          null,
+          "Password updated successfully. Please login again.",
+        ),
+      );
+  },
 );

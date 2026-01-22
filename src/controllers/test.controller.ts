@@ -1176,15 +1176,17 @@ export const getTestResult = asyncHandler(async (req: Request, res: Response) =>
 });
 
 export const viewTestSolution = asyncHandler(async (req: Request, res: Response) => {
-  const userId = (req as any).user.id; // Or .userId depending on your middleware
+  // 1. FIX: Handle both .id and .userId to match your middleware
+  const userObj = (req as any).user;
+  const currentUserId = userObj?.id || userObj?.userId; 
+
   const { attemptId } = req.params;
 
   if (!attemptId) {
     throw new ApiError(400, "Attempt ID is required");
   }
 
-  // 1. Fetch Attempt with deep nested relations
-  // We need: Test Info -> Answers -> Linked Question (with correct option & explanation)
+  // Fetch Attempt
   const attempt = await prisma.testAttempt.findUnique({
     where: { id: attemptId.toString() },
     include: {
@@ -1197,7 +1199,7 @@ export const viewTestSolution = asyncHandler(async (req: Request, res: Response)
         },
       },
       answers: {
-        orderBy: { question: { id: 'asc' } }, // Keep consistent order
+        orderBy: { question: { id: 'asc' } },
         include: {
           question: {
             select: {
@@ -1208,9 +1210,9 @@ export const viewTestSolution = asyncHandler(async (req: Request, res: Response)
               option2: true,
               option3: true,
               option4: true,
-              correctOption: true,       // Critical for solution
-              explanation: true,         // Critical for solution
-              explanationImageUrl: true, // Critical for solution
+              correctOption: true,
+              explanation: true,
+              explanationImageUrl: true,
               difficultyLevel: true,
               topicId: true,
             },
@@ -1220,27 +1222,26 @@ export const viewTestSolution = asyncHandler(async (req: Request, res: Response)
     },
   });
 
-  // 2. Validations
   if (!attempt) {
     throw new ApiError(404, "Test attempt not found");
   }
 
-  // Security: Ensure the requesting user owns this attempt
-  if (attempt.userId !== userId) {
+  // 2. FIX: Debugging Log (Remove after fixing)
+  console.log(`Attempt Owner: ${attempt.userId} | Requesting User: ${currentUserId}`);
+
+  // 3. FIX: Convert both to String before comparing to avoid '1' !== 1 issues
+  if (attempt.userId.toString() !== currentUserId.toString()) {
     throw new ApiError(403, "You do not have permission to view this solution");
   }
 
-  // Logic: Solutions are only visible AFTER submission
   if (attempt.status !== "SUBMITTED") {
     throw new ApiError(400, "Test is still in progress. Submit it to view solutions.");
   }
 
-  // 3. Format Data for Frontend
-  // We transform the DB structure into a clean UI-ready format
+  // ... (Rest of your formatting logic remains the same) ...
+
   const formattedSolutions = attempt.answers.map((ans) => {
     const q = ans.question;
-    
-    // Determine status
     let status = "UNATTEMPTED";
     if (ans.selectedOption !== null) {
       status = ans.selectedOption === q.correctOption ? "CORRECT" : "INCORRECT";
@@ -1251,24 +1252,17 @@ export const viewTestSolution = asyncHandler(async (req: Request, res: Response)
       questionText: q.questionText,
       questionImage: q.questionImageUrl,
       options: [q.option1, q.option2, q.option3, q.option4],
-      
-      // The Answer Key
-      userSelectedOption: ans.selectedOption, // 1, 2, 3, 4 or null
-      correctOption: q.correctOption,         // 1, 2, 3, 4
-      
-      // The Explanation
+      userSelectedOption: ans.selectedOption,
+      correctOption: q.correctOption,
       explanation: q.explanation,
       explanationImage: q.explanationImageUrl,
-      
-      // Metadata
-      status: status, // CORRECT | INCORRECT | UNATTEMPTED
+      status: status,
       marks: ans.marksObtained,
-      timeSpent: ans.timeSpent, // in seconds
+      timeSpent: ans.timeSpent,
       difficulty: q.difficultyLevel
     };
   });
 
-  // 4. Calculate Summary Stats
   const summary = {
     testName: attempt.test.name,
     totalScore: attempt.totalMarks,
