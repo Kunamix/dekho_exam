@@ -20,12 +20,12 @@
     "@types/morgan": "^1.9.10",
     "@types/multer": "^2.0.0",
     "@types/node": "^25.0.9",
-    "tsdown": "^0.20.0-beta.3",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.2.0",
+    "tsdown": "^0.20.0-beta.3",
     "@prisma/client": "^7.2.0",
     "axios": "^1.13.2",
     "bcryptjs": "^3.0.3",
