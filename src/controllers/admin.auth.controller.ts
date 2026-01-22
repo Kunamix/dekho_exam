@@ -107,14 +107,14 @@ export const adminLogin = asyncHandler(async (req: Request, res: Response) => {
       httpOnly: true,
       secure: myEnvironment.NODE_ENV === "production",
       maxAge: 3 * 24 * 60 * 60 * 1000,
-      sameSite: "strict",
+      sameSite: myEnvironment.NODE_ENV === "production" ? "none" : "lax",
     });
 
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      sameSite: "strict",
+      sameSite: myEnvironment.NODE_ENV === "production" ? "none" : "lax",
     });
 
     return res.status(200).json(
@@ -174,7 +174,7 @@ export const adminLogin = asyncHandler(async (req: Request, res: Response) => {
       httpOnly: true,
       secure: myEnvironment.NODE_ENV === "production",
       maxAge: 5 * 60 * 1000,
-      sameSite: "strict",
+      sameSite: myEnvironment.NODE_ENV === "production" ? "none" : "lax",
     });
 
     return res.status(200).json(
@@ -308,14 +308,14 @@ export const adminVerifyOTP = asyncHandler(
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       maxAge: 3 * 24 * 60 * 60 * 1000,
-      sameSite: "strict",
+      sameSite: myEnvironment.NODE_ENV === "production" ? "none" : "lax",
     });
 
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       maxAge: 7 * 24 * 60 * 60 * 1000,
-      sameSite: "strict",
+      sameSite: myEnvironment.NODE_ENV === "production" ? "none" : "lax",
     });
 
     return res.status(200).json(
@@ -479,14 +479,14 @@ export const adminRefreshToken = asyncHandler(
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       maxAge: 15 * 60 * 1000,
-      sameSite: "strict",
+      sameSite: myEnvironment.NODE_ENV === "production" ? "none" : "lax",
     });
 
     res.cookie("refreshToken", newRefreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       maxAge: 7 * 24 * 60 * 60 * 1000,
-      sameSite: "strict",
+      sameSite: myEnvironment.NODE_ENV === "production" ? "none" : "lax",
     });
 
     return res.status(200).json(
