@@ -236,7 +236,7 @@ export const deleteCategory = asyncHandler(
 // Assign Subjects to Category
 export const assignSubjectsToCategory = asyncHandler(
   async (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { categoryId } = req.params;
     const { subjects } = req.body; // Array of { subjectId, questionsPerTest, displayOrder }
 
     if (!Array.isArray(subjects) || subjects.length === 0) {
@@ -244,7 +244,7 @@ export const assignSubjectsToCategory = asyncHandler(
     }
 
     const category = await prisma.category.findUnique({
-      where: { id: id.toString() },
+      where: { id: categoryId.toString() },
     });
 
     if (!category) {
@@ -253,13 +253,13 @@ export const assignSubjectsToCategory = asyncHandler(
 
     // Delete existing assignments
     await prisma.categorySubject.deleteMany({
-      where: { categoryId: id.toString() },
+      where: { categoryId: categoryId.toString() },
     });
 
     // Create new assignments
     const categorySubjects = await prisma.categorySubject.createMany({
       data: subjects.map((subject: any) => ({
-        categoryId: id.toString(),
+        categoryId: categoryId.toString(),
         subjectId: subject.subjectId,
         questionsPerTest: subject.questionsPerTest,
         displayOrder: subject.displayOrder || 0,

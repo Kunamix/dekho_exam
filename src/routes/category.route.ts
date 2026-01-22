@@ -21,8 +21,8 @@ router.get("/category/categories", verifyToken, getAllCategories);
 router.get("/category/category-get-by-id/:id", verifyToken, getCategoryById);
 router.patch("/category/update-category/:id", verifyToken, verifyAdmin, updateCategory);
 router.delete("/category/delete-category/:id", verifyToken, verifyAdmin, deleteCategory);
-router.post(
-  "/category/assign-subject/:id/assign-subjects",
+router.put(
+  "/category/assign-subject/:categoryId/assign-subjects",
   verifyToken,
   verifyAdmin,
   assignSubjectsToCategory,

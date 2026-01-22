@@ -9,7 +9,7 @@ const app = express();
 
 app.use(
   cors({
-    origin: ["http://localhost:5173", "*"],
+    origin: ["http://localhost:5173", "https://dekhoexam.netlify.app"],
     optionsSuccessStatus: 200,
     credentials: true,
     maxAge: 86400,

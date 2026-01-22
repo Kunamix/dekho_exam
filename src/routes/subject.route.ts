@@ -3,6 +3,7 @@ import {
   deleteSubject,
   getAllSubjects,
   getSubjectById,
+  toggleSubjectStatus,
   updateSubject,
 } from "@/controllers/subject.controller";
 import { verifyAdmin, verifyToken } from "@/middlewares/auth.middleware";
@@ -15,5 +16,6 @@ router.get("/subject/get-all-subjects", verifyToken, verifyAdmin, getAllSubjects
 router.get("/subject/subjects/:id", verifyToken, verifyAdmin, getSubjectById);
 router.patch("/subject/update-subject/:id", verifyToken, verifyAdmin, updateSubject);
 router.delete("/subject/delete-subject/:id", verifyToken, verifyAdmin, deleteSubject);
+router.patch("/subject/toggle-status/:id",verifyToken,verifyAdmin,toggleSubjectStatus);
 
 export default router;
