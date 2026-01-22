@@ -6,6 +6,22 @@ import { prisma } from "@/database/db";
 import csv from "csv-parser";
 import { Readable } from "stream";
 
+const MAX_IMAGE_SIZE_MB = 5;
+
+const validateBase64Image = (base64?: string) => {
+  if (!base64) return;
+
+  const sizeInBytes =
+    (base64.length * 3) / 4 -
+    (base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0);
+
+  const sizeInMB = sizeInBytes / (1024 * 1024);
+
+  if (sizeInMB > MAX_IMAGE_SIZE_MB) {
+    throw new ApiError(400, "Image size must be less than 5MB");
+  }
+};
+
 // Create Question
 export const createQuestion = asyncHandler(
   async (req: Request, res: Response) => {
@@ -40,6 +56,9 @@ export const createQuestion = asyncHandler(
     if (![1, 2, 3, 4].includes(Number(correctOption))) {
       throw new ApiError(400, "Correct option must be between 1 and 4");
     }
+
+    validateBase64Image(questionImageUrl);
+    validateBase64Image(explanationImageUrl);
 
     const topic = await prisma.topic.findUnique({
       where: { id: topicId },

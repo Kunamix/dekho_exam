@@ -4,6 +4,7 @@ import http from "http";
 import {myEnvironment} from "@/configs/env";
 import app from "./app";
 import logger from "./logger/winston.logger";
+import { startKeepAliveCron } from "./helpers/cornJOB";
 
 const server = http.createServer(app);
 
@@ -16,6 +17,7 @@ const startServer = async () => {
       }/api/v1/health-check`
     );
     logger.info("⚙️  Server is running on port: " + myEnvironment.PORT);
+    startKeepAliveCron();
   });
   } catch (error) {
     logger.error("Failed to start server: ",error);
