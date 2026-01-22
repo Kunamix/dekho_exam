@@ -431,7 +431,7 @@ export const adminRefreshToken = asyncHandler(
     const session = await prisma.session.findFirst({
       where: {
         refreshToken,
-        id: decoded.id,
+        userId: decoded.id,
       },
     });
 
@@ -478,7 +478,7 @@ export const adminRefreshToken = asyncHandler(
     res.cookie("accessToken", accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      maxAge: 15 * 60 * 1000,
+      maxAge: 3 * 24 * 60 * 60 * 1000,
       sameSite: myEnvironment.NODE_ENV === "production" ? "none" : "lax",
     });
 

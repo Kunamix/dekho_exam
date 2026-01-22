@@ -24,8 +24,6 @@ router.post(
 );
 router.post(
   "/admin-auth/admin-refresh-token",
-  verifyToken,
-  verifyAdmin,
   adminRefreshToken,
 );
 
