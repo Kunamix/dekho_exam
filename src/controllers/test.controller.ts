@@ -901,49 +901,95 @@ export const startTestAttempt = asyncHandler(async (req: Request, res: Response)
   const { testId } = req.params;
   const userId = (req as any).user.userId;
 
-  // Check if there is an existing IN_PROGRESS attempt
+  if (!testId) throw new ApiError(400, "Test ID is required");
+
+  /* --------------------------------------------------
+     1. Resume existing IN_PROGRESS attempt
+  -------------------------------------------------- */
   const existingAttempt = await prisma.testAttempt.findFirst({
-    where: { userId:toString(), testId:testId.toString(), status: "IN_PROGRESS" }
+    where: {
+      userId,
+      testId: testId.toString(),
+      status: TestStatus.IN_PROGRESS,
+    },
   });
 
   if (existingAttempt) {
-    return res.status(200).json(new ApiResponse(200, { attemptId: existingAttempt.id }, "Resuming test"));
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        { attemptId: existingAttempt.id },
+        "Resuming test",
+      ),
+    );
   }
 
-  // Fetch Test Config
-  const test = await prisma.test.findUnique({ where: { id: testId.toString() } });
+  /* --------------------------------------------------
+     2. Fetch Test
+  -------------------------------------------------- */
+  const test = await prisma.test.findUnique({
+    where: { id: testId.toString() },
+  });
+
   if (!test) throw new ApiError(404, "Test not found");
 
-  // Fetch Question IDs (Randomized logic can be added here)
+  /* --------------------------------------------------
+     3. Calculate NEXT attemptNumber (🔥 CRITICAL FIX)
+  -------------------------------------------------- */
+  const lastAttempt = await prisma.testAttempt.findFirst({
+    where: { userId, testId: testId.toString() },
+    orderBy: { attemptNumber: "desc" },
+    select: { attemptNumber: true },
+  });
+
+  const nextAttemptNumber = (lastAttempt?.attemptNumber || 0) + 1;
+
+  /* --------------------------------------------------
+     4. Fetch Questions
+  -------------------------------------------------- */
   const questions = await prisma.question.findMany({
-    where: { 
-      topic: { 
-        subject: { 
-          categorySubjects: { some: { categoryId: test.categoryId } } 
-        } 
+    where: {
+      topic: {
+        subject: {
+          categorySubjects: {
+            some: { categoryId: test.categoryId },
+          },
+        },
       },
-      isActive: true
+      isActive: true,
     },
     take: test.totalQuestions,
-    select: { id: true }
+    select: { id: true },
   });
 
-  const questionIds = questions.map(q => q.id);
+  if (questions.length === 0) {
+    throw new ApiError(400, "No questions available for this test");
+  }
 
-  // Create Attempt
+  const questionIds = questions.map((q) => q.id);
+
+  /* --------------------------------------------------
+     5. Create NEW attempt (SAFE)
+  -------------------------------------------------- */
   const newAttempt = await prisma.testAttempt.create({
     data: {
-      userId:userId.toString(),
-      testId:testId.toString(),
-      attemptNumber: 1, // Logic to increment this can be added
+      userId: userId.toString(),
+      testId: testId.toString(),
+      attemptNumber: nextAttemptNumber,
       totalQuestions: test.totalQuestions,
-      status: "IN_PROGRESS",
-      questionIds: questionIds, // Storing IDs as JSON array
-      questionSetSeed: "default"
-    }
+      status: TestStatus.IN_PROGRESS,
+      questionIds,
+      questionSetSeed: Date.now().toString(),
+    },
   });
 
-  return res.status(201).json(new ApiResponse(201, { attemptId: newAttempt.id }, "Test started"));
+  return res.status(201).json(
+    new ApiResponse(
+      201,
+      { attemptId: newAttempt.id },
+      "Test started",
+    ),
+  );
 });
 
 // 3. Get Questions for Attempt

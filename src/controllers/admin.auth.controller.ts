@@ -29,7 +29,7 @@ export const admin = asyncHandler(async (req: Request, res: Response) => {
 
 export const adminLogin = asyncHandler(async (req: Request, res: Response) => {
   const { email, password, phoneNumber } = req.body;
-  
+
   if (!email && !phoneNumber) {
     throw new ApiError(400, "Please provide all filed");
   }
@@ -143,7 +143,7 @@ export const adminLogin = asyncHandler(async (req: Request, res: Response) => {
     }
 
     // const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpCode = '123456';
+    const otpCode = "123456";
     const expiresAt = new Date();
     expiresAt.setMinutes(expiresAt.getMinutes() + 10);
 
@@ -207,18 +207,20 @@ export const adminVerifyOTP = asyncHandler(
     if (!decodeToken) {
       throw new ApiError(404, "OTP is not valid");
     }
-   
+
     const otpRecord = await prisma.oTP.findUnique({
       where: {
         id: decodeToken.otpId,
       },
     });
 
-
-    if (!otpRecord || otpRecord.phoneNumber?.toString() !== decodeToken.phoneNumber.toString()) {
+    if (
+      !otpRecord ||
+      otpRecord.phoneNumber?.toString() !== decodeToken.phoneNumber.toString()
+    ) {
       throw new ApiError(401, "Invalid OTP");
     }
-   
+
     if (otpRecord.isVerified) {
       throw new ApiError(401, "OTP already used");
     }
@@ -231,7 +233,6 @@ export const adminVerifyOTP = asyncHandler(
       throw new ApiError(401, "Too many attempts");
     }
 
-    
     if (otpRecord.code !== otpCode) {
       await prisma.oTP.update({
         where: { id: decodeToken.otpId },
@@ -348,8 +349,18 @@ export const adminLogout = asyncHandler(async (req: Request, res: Response) => {
     where: { userId },
   });
 
-  res.clearCookie("accessToken");
-  res.clearCookie("refreshToken");
+  res.clearCookie("accessToken", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    path: "/", // VERY IMPORTANT
+  });
+  res.clearCookie("refreshToken", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    path: "/", // VERY IMPORTANT
+  });
 
   return res.status(200).json(new ApiResponse(200, {}, "Logout successful"));
 });
@@ -418,6 +429,7 @@ export const adminChangePassword = asyncHandler(
 export const adminRefreshToken = asyncHandler(
   async (req: Request, res: Response) => {
     const refreshToken = req.cookies.refreshToken;
+    console.log(refreshToken);
 
     if (!refreshToken) {
       throw new ApiError(401, "Refresh token required");
@@ -428,12 +440,16 @@ export const adminRefreshToken = asyncHandler(
       myEnvironment.REFRESH_SECRET as string,
     );
 
+    console.log(decoded);
+
     const session = await prisma.session.findFirst({
       where: {
         refreshToken,
         userId: decoded.id,
       },
     });
+
+    console.log(session);
 
     if (!session) {
       throw new ApiError(401, "Invalid refresh token");
