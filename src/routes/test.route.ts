@@ -9,6 +9,7 @@ import {
   getTestById,
   getTestInstructions,
   getTestResult,
+  getTestsByCategory,
   getTestStats,
   saveAnswer,
   startTestAttempt,
@@ -22,7 +23,7 @@ import { Router } from "express";
 const router = Router();
 
 // Only app
-router.get("/test/get-test-by-category-id/:categoryId", verifyToken);
+router.get("/test/get-test-by-category-id/:categoryId", verifyToken,getTestsByCategory);
 router.get("/test/get-popular-tests", verifyToken, getPopularTests);
 router.get("/test/attempt-history", verifyToken, getAttemptHistory);
 router.get("/test/get-test-instruction/:testId",verifyToken,getTestInstructions);
