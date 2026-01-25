@@ -1,4 +1,5 @@
 import { prisma } from "@/database/db";
+import { Prisma } from "@/generated/prisma/client";
 import { SubscriptionType, TestStatus } from "@/generated/prisma/enums";
 import { ApiError } from "@/utils/ApiError";
 import { ApiResponse } from "@/utils/ApiResponse";
@@ -87,192 +88,6 @@ export const getTestDetails = asyncHandler(
   },
 );
 
-export const startTest = asyncHandler(async (req: Request, res: Response) => {
-  const userId = (req as any).user.id;
-  const { testId } = req.body;
-
-  if (!testId) throw new ApiError(400, "Test ID is required");
-
-  // 1. Fetch Test and User details
-  const [test, user] = await Promise.all([
-    prisma.test.findUnique({ where: { id: testId } }),
-    prisma.user.findUnique({ where: { id: userId } }),
-  ]);
-
-  if (!test) throw new ApiError(404, "Test not found");
-  if (!test.isActive)
-    throw new ApiError(400, "This test is currently inactive");
-  if (!user) throw new ApiError(404, "User not found");
-
-  // =================================================================
-  // 2. ACCESS CONTROL LOGIC (The "Gatekeeper")
-  // =================================================================
-
-  let consumeFreeAttempt = false;
-
-  // Only check permissions if the test is marked as PAID
-  if (test.isPaid) {
-    const FREE_LIMIT = 2;
-
-    // Check A: Does user have free attempts left?
-    if (user.freeTestsUsed < FREE_LIMIT) {
-      consumeFreeAttempt = true; // We will increment this later in transaction
-    } else {
-      // Check B: User has used all free attempts. Check Subscriptions.
-
-      const activeSubscription = await prisma.userSubscription.findFirst({
-        where: {
-          userId: userId,
-          isActive: true,
-          endDate: { gt: new Date() }, // Subscription must not be expired
-          OR: [
-            // Option 1: User has "ALL_CATEGORIES" pass
-            { type: SubscriptionType.ALL_CATEGORIES },
-            // Option 2: User has bought THIS specific category
-            {
-              type: SubscriptionType.CATEGORY_SPECIFIC,
-              categoryId: test.categoryId,
-            },
-          ],
-        },
-      });
-
-      if (!activeSubscription) {
-        throw new ApiError(
-          403,
-          "You have used your free attempts. Please purchase a subscription to access this test.",
-        );
-      }
-    }
-  }
-
-  // =================================================================
-  // 3. QUESTION GENERATION LOGIC
-  // =================================================================
-
-  let selectedQuestions: any[] = [];
-
-  if (test.subjectId) {
-    // SCENARIO A: Subject-Specific Test (e.g., "Math Test 1")
-    // Fetch random questions from topics belonging to this subject
-
-    // 1. Get Topic IDs
-    const topics = await prisma.topic.findMany({
-      where: { subjectId: test.subjectId, isActive: true },
-      select: { id: true },
-    });
-    const topicIds = topics.map((t) => t.id);
-
-    // 2. Fetch random questions
-    // (In production with millions of rows, use raw query. For now, this is efficient enough)
-    const allQuestionIds = await prisma.question.findMany({
-      where: { topicId: { in: topicIds }, isActive: true },
-      select: { id: true },
-    });
-
-    // Shuffle and slice
-    const shuffled = allQuestionIds.sort(() => 0.5 - Math.random());
-    const selectedIds = shuffled.slice(0, test.totalQuestions).map((q) => q.id);
-
-    selectedQuestions = await prisma.question.findMany({
-      where: { id: { in: selectedIds } },
-      select: {
-        id: true,
-        questionText: true,
-        option1: true,
-        option2: true,
-        option3: true,
-        option4: true,
-        questionImageUrl: true,
-      },
-    });
-  } else {
-    // SCENARIO B: Full Mock Test (Category Level)
-    // We need to fetch questions based on the blueprint defined in CategorySubject
-    // (e.g., 25 Math, 25 English, 25 GK, 25 Reasoning)
-
-    const blueprint = await prisma.categorySubject.findMany({
-      where: { categoryId: test.categoryId },
-      include: { subject: { include: { topics: { select: { id: true } } } } },
-    });
-
-    for (const item of blueprint) {
-      const questionsNeeded = item.questionsPerTest;
-      const subjectTopicIds = item.subject.topics.map((t) => t.id);
-
-      // Fetch potential question IDs for this subject
-      const subjectQuestionIds = await prisma.question.findMany({
-        where: { topicId: { in: subjectTopicIds }, isActive: true },
-        select: { id: true },
-      });
-
-      // Shuffle and take required amount
-      const shuffled = subjectQuestionIds.sort(() => 0.5 - Math.random());
-      const selectedIds = shuffled.slice(0, questionsNeeded).map((q) => q.id);
-
-      const subjectQuestions = await prisma.question.findMany({
-        where: { id: { in: selectedIds } },
-        select: {
-          id: true,
-          questionText: true,
-          option1: true,
-          option2: true,
-          option3: true,
-          option4: true,
-          questionImageUrl: true,
-        },
-      });
-
-      selectedQuestions = [...selectedQuestions, ...subjectQuestions];
-    }
-  }
-
-  // Shuffle the final list so subjects are mixed (optional)
-  selectedQuestions = selectedQuestions.sort(() => 0.5 - Math.random());
-
-  // =================================================================
-  // 4. TRANSACTION: CREATE ATTEMPT & UPDATE USER
-  // =================================================================
-
-  const result = await prisma.$transaction(async (tx) => {
-    // A. Create the Attempt
-    const attempt = await tx.testAttempt.create({
-      data: {
-        userId: userId.toString(),
-        testId: testId.toString(),
-        attemptNumber: 1,
-        totalQuestions: selectedQuestions.length,
-        questionIds: selectedQuestions.map((q) => q.id), // Store the exact order
-        questionSetSeed: Date.now().toString(), // Simple seed reference
-        status: "IN_PROGRESS",
-      },
-    });
-
-    // B. If this was a free attempt, increment the counter
-    if (consumeFreeAttempt) {
-      await tx.user.update({
-        where: { id: userId },
-        data: { freeTestsUsed: { increment: 1 } },
-      });
-    }
-
-    return attempt;
-  });
-
-  return res.status(201).json(
-    new ApiResponse(
-      201,
-      {
-        attemptId: result.id,
-        duration: test.durationMinutes,
-        questions: selectedQuestions,
-        isFreeAttempt: consumeFreeAttempt,
-      },
-      "Test started successfully",
-    ),
-  );
-});
-
 
 export const reportIssue = asyncHandler(async (req: Request, res: Response) => {
   const userId = (req as any).user.id;
@@ -347,24 +162,9 @@ export const createTest = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError(404, "Category not found");
   }
 
-  if (subjectId) {
-    const subject = await prisma.subject.findUnique({
-      where: { id: subjectId },
-    });
-
-    if (!subject) {
-      throw new ApiError(404, "Subject not found");
-    }
-  }
-
-  // Check for duplicate test number in category
   const existingTest = await prisma.test.findFirst({
-    where: {
-      categoryId,
-      testNumber: Number(testNumber),
-    },
+    where: { categoryId, testNumber: Number(testNumber) },
   });
-
   if (existingTest) {
     throw new ApiError(
       409,
@@ -372,25 +172,289 @@ export const createTest = asyncHandler(async (req: Request, res: Response) => {
     );
   }
 
+  const blueprint = await prisma.categorySubject.findMany({
+    where: { categoryId },
+    include: {
+      subject: {
+        include: {
+          topics: {
+            where: { isActive: true },
+            select: { id: true },
+          },
+        },
+      },
+    },
+  });
+
+  if (blueprint.length === 0) {
+    throw new ApiError(400, "No subjects configured for this category");
+  }
+
+  const existingTests = await prisma.test.findMany({
+    where: { categoryId, preSelectedQuestionIds: { not: Prisma.DbNull } },
+    select: { preSelectedQuestionIds: true },
+  });
+
+  const usedQuestionIds = new Set<string>();
+  existingTests.forEach((test) => {
+    const ids = (test.preSelectedQuestionIds as string[]) || [];
+    ids.forEach((id) => usedQuestionIds.add(id));
+  });
+
+  const selectedQuestionIds: string[] = [];
+  const insufficientSubjects: string[] = [];
+
+  for (const item of blueprint) {
+    const topicIds = item.subject.topics.map((t) => t.id);
+    const questionNeeded = item.questionsPerTest;
+
+    const allQuestions = await prisma.question.findMany({
+      where: {
+        topicId: { in: topicIds },
+        isActive: true,
+      },
+      select: { id: true },
+    });
+
+    const unusedQuestions = allQuestions.filter(
+      (q) => !usedQuestionIds.has(q.id),
+    );
+
+    if (unusedQuestions.length < questionNeeded) {
+      insufficientSubjects.push(
+        `${item.subject.name}: Need ${questionNeeded}, but only ${unusedQuestions.length} unused questions available`,
+      );
+      continue;
+    }
+
+    const shuffled = unusedQuestions.sort(() => 0.5 - Math.random());
+    const selected = shuffled.slice(0, questionNeeded);
+    selectedQuestionIds.push(...selected.map((q) => q.id));
+  }
+
+  if (insufficientSubjects.length > 0) {
+    throw new ApiError(
+      400,
+      `Insufficient unused questions: \n${insufficientSubjects.join("\n")}\n\nPlease upload more questions before creating this test`,
+    );
+  }
+
+  const finalQuestionIds = selectedQuestionIds.sort(() => 0.5 - Math.random());
+
   const test = await prisma.test.create({
     data: {
       categoryId,
       subjectId,
       name,
       description,
-      totalQuestions: Number(totalQuestions) || 100,
+      totalQuestions: finalQuestionIds.length,
       durationMinutes: Number(durationMinutes) || 60,
       positiveMarks: positiveMarks || 1.0,
-      negativeMarks: negativeMarks || 0.25,
-      isPaid: isPaid || false,
+      negativeMarks: negativeMarks || 0.2,
+      isPaid: isPaid || true,
       testNumber: Number(testNumber),
+      preSelectedQuestionIds: finalQuestionIds,
       createdById: userId,
     },
   });
 
-  return res
-    .status(201)
-    .json(new ApiResponse(201, test, "Test created successfully"));
+  return res.status(201).json(
+    new ApiResponse(
+      201,
+      {
+        ...test,
+        questionsAssigned: finalQuestionIds.length,
+        message:
+          "Test created successfully with auto-assigned unused questions",
+      },
+      "Test created successfully",
+    ),
+  );
+});
+
+export const startTest = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as any).user.userId;
+  const { testId } = req.body;
+
+  const [test, user] = await Promise.all([
+    prisma.test.findUnique({ where: { id: testId } }),
+    prisma.user.findUnique({ where: { id: userId } }),
+  ]);
+
+  if (!test) throw new ApiError(404, "Test not found");
+  if (!user) throw new ApiError(404, "User not found");
+
+  let consumeFreeAttempt = false;
+
+  if (test.isPaid) {
+    const FREE_LIMIT = 2;
+
+    // Check A: Does user have free attempts left?
+    if (user.freeTestsUsed < FREE_LIMIT) {
+      consumeFreeAttempt = true; // We will increment this later in transaction
+    } else {
+      // Check B: User has used all free attempts. Check Subscriptions.
+
+      const activeSubscription = await prisma.userSubscription.findFirst({
+        where: {
+          userId: userId,
+          isActive: true,
+          endDate: { gt: new Date() }, // Subscription must not be expired
+          OR: [
+            // Option 1: User has "ALL_CATEGORIES" pass
+            { type: SubscriptionType.ALL_CATEGORIES },
+            // Option 2: User has bought THIS specific category
+            {
+              type: SubscriptionType.CATEGORY_SPECIFIC,
+              categoryId: test.categoryId,
+            },
+          ],
+        },
+      });
+
+      if (!activeSubscription) {
+        throw new ApiError(
+          403,
+          "You have used your free attempts. Please purchase a subscription to access this test.",
+        );
+      }
+    }
+  }
+
+  let selectedQuestions: any[] = [];
+
+  if (
+    test.preSelectedQuestionIds &&
+    Array.isArray(test.preSelectedQuestionIds)
+  ) {
+    const questionIds = test.preSelectedQuestionIds as string[];
+
+    selectedQuestions = await prisma.question.findMany({
+      where: { id: { in: questionIds } },
+      select: {
+        id: true,
+        questionText: true,
+        option1: true,
+        option2: true,
+        option3: true,
+        option4: true,
+        questionImageUrl: true,
+      },
+    });
+
+    selectedQuestions = questionIds
+      .map((id) => selectedQuestions.find((q) => q.id === id))
+      .filter((q) => q !== undefined);
+  } else {
+    if (test.subjectId) {
+      // SCENARIO A: Subject-Specific Test (e.g., "Math Test 1")
+      // Fetch random questions from topics belonging to this subject
+
+      // 1. Get Topic IDs
+      const topics = await prisma.topic.findMany({
+        where: { subjectId: test.subjectId, isActive: true },
+        select: { id: true },
+      });
+      const topicIds = topics.map((t) => t.id);
+
+      // 2. Fetch random questions
+      // (In production with millions of rows, use raw query. For now, this is efficient enough)
+      const allQuestionIds = await prisma.question.findMany({
+        where: { topicId: { in: topicIds }, isActive: true },
+        select: { id: true },
+      });
+
+      // Shuffle and slice
+      const shuffled = allQuestionIds.sort(() => 0.5 - Math.random());
+      const selectedIds = shuffled
+        .slice(0, test.totalQuestions)
+        .map((q) => q.id);
+
+      selectedQuestions = await prisma.question.findMany({
+        where: { id: { in: selectedIds } },
+        select: {
+          id: true,
+          questionText: true,
+          option1: true,
+          option2: true,
+          option3: true,
+          option4: true,
+          questionImageUrl: true,
+        },
+      });
+    } else {
+      // SCENARIO B: Full Mock Test (Category Level)
+      // We need to fetch questions based on the blueprint defined in CategorySubject
+      // (e.g., 25 Math, 25 English, 25 GK, 25 Reasoning)
+
+      const blueprint = await prisma.categorySubject.findMany({
+        where: { categoryId: test.categoryId },
+        include: { subject: { include: { topics: { select: { id: true } } } } },
+      });
+
+      for (const item of blueprint) {
+        const questionsNeeded = item.questionsPerTest;
+        const subjectTopicIds = item.subject.topics.map((t) => t.id);
+
+        // Fetch potential question IDs for this subject
+        const subjectQuestionIds = await prisma.question.findMany({
+          where: { topicId: { in: subjectTopicIds }, isActive: true },
+          select: { id: true },
+        });
+
+        // Shuffle and take required amount
+        const shuffled = subjectQuestionIds.sort(() => 0.5 - Math.random());
+        const selectedIds = shuffled.slice(0, questionsNeeded).map((q) => q.id);
+
+        const subjectQuestions = await prisma.question.findMany({
+          where: { id: { in: selectedIds } },
+          select: {
+            id: true,
+            questionText: true,
+            option1: true,
+            option2: true,
+            option3: true,
+            option4: true,
+            questionImageUrl: true,
+          },
+        });
+
+        selectedQuestions = [...selectedQuestions, ...subjectQuestions];
+      }
+    }
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    const attempt = await tx.testAttempt.create({
+      data: {
+        userId: userId.toString(),
+        testId: testId.toString(),
+        attemptNumber: 1,
+        totalQuestions: selectedQuestions.length,
+        questionIds: selectedQuestions.map((q) => q.id),
+        questionSetSeed: Date.now.toString(),
+        status: "IN_PROGRESS"
+      }
+    });
+
+    if(consumeFreeAttempt){
+      await tx.user.update({
+        where: {id: userId},
+        data: {freeTestsUsed: {increment: 1}},
+      })
+    }
+
+    return attempt;
+  });
+
+  return res.status(201).json(
+    new ApiResponse(201, {
+      attemptId: result.id,
+      duration: test.durationMinutes,
+      questions: selectedQuestions,
+      isFreeAttempts: consumeFreeAttempt,
+    },"Test started successfully")
+  )
 });
 
 // Get All Tests
@@ -774,271 +838,297 @@ export const cloneTest = asyncHandler(async (req: Request, res: Response) => {
     .json(new ApiResponse(201, clonedTest, "Test cloned successfully"));
 });
 
-// Naman sir 
-export const getTestsByCategory = asyncHandler(async (req: Request, res: Response) => {
-  const { categoryId } = req.params;
-  const userId = (req as any).user.userId;
+// Naman sir
+export const getTestsByCategory = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { categoryId } = req.params;
+    const userId = (req as any).user.userId;
 
-  if (!categoryId) throw new ApiError(400, "Category ID is required");
+    if (!categoryId) throw new ApiError(400, "Category ID is required");
 
-  const tests = await prisma.test.findMany({
-    where: { categoryId:categoryId.toString(), isActive: true },
-    orderBy: { createdAt: "desc" },
-    include: {
-      // Check if user has attempted this test
-      testAttempts: {
-        where: { userId },
-        select: { status: true, id: true },
-        take: 1, // We only need to know if an attempt exists
-        orderBy: { createdAt: 'desc' }
+    const tests = await prisma.test.findMany({
+      where: { categoryId: categoryId.toString(), isActive: true },
+      orderBy: { createdAt: "desc" },
+      include: {
+        // Check if user has attempted this test
+        testAttempts: {
+          where: { userId },
+          select: { status: true, id: true },
+          take: 1, // We only need to know if an attempt exists
+          orderBy: { createdAt: "desc" },
+        },
+      },
+    });
+
+    const formatted = tests.map((test) => {
+      const lastAttempt = test.testAttempts[0];
+      let attemptStatus = "NOT_STARTED";
+
+      if (lastAttempt) {
+        attemptStatus = lastAttempt.status; // IN_PROGRESS, SUBMITTED, etc.
       }
-    }
-  });
 
-  const formatted = tests.map(test => {
-    const lastAttempt = test.testAttempts[0];
-    let attemptStatus = "NOT_STARTED";
-    
-    if (lastAttempt) {
-      attemptStatus = lastAttempt.status; // IN_PROGRESS, SUBMITTED, etc.
-    }
+      return {
+        id: test.id,
+        name: test.name,
+        description: test.description,
+        totalQuestions: test.totalQuestions,
+        durationMinutes: test.durationMinutes,
+        isPaid: test.isPaid,
+        attemptStatus, // Frontend uses this to show "Start", "Resume", or "View Result"
+        lastAttemptId: lastAttempt?.id || null,
+      };
+    });
 
-    return {
-      id: test.id,
-      name: test.name,
-      description: test.description,
-      totalQuestions: test.totalQuestions,
-      durationMinutes: test.durationMinutes,
-      isPaid: test.isPaid,
-      attemptStatus, // Frontend uses this to show "Start", "Resume", or "View Result"
-      lastAttemptId: lastAttempt?.id || null
-    };
-  });
-
-  return res.status(200).json(new ApiResponse(200, formatted, "Tests fetched successfully"));
-});
+    return res
+      .status(200)
+      .json(new ApiResponse(200, formatted, "Tests fetched successfully"));
+  },
+);
 
 // 3. Get Popular / Recommended Tests
-export const getPopularTests = asyncHandler(async (req: Request, res: Response) => {
-  // Logic: Fetch top 5 tests with most attempts (simplified here as fetching any active tests)
-  // In production, you might sort by 'attempts count' if you add that field.
-  const tests = await prisma.test.findMany({
-    where: { isActive: true },
-    take: 5,
-    orderBy: { createdAt: "desc" }, // Or order by popularity logic
-    select: {
-      id: true,
-      name: true,
-      totalQuestions: true,
-      durationMinutes: true,
-      isPaid: true,
-      category: {
-        select: { name: true }
-      }
-    }
-  });
+export const getPopularTests = asyncHandler(
+  async (req: Request, res: Response) => {
+    // Logic: Fetch top 5 tests with most attempts (simplified here as fetching any active tests)
+    // In production, you might sort by 'attempts count' if you add that field.
+    const tests = await prisma.test.findMany({
+      where: { isActive: true },
+      take: 5,
+      orderBy: { createdAt: "desc" }, // Or order by popularity logic
+      select: {
+        id: true,
+        name: true,
+        totalQuestions: true,
+        durationMinutes: true,
+        isPaid: true,
+        category: true
+      },
+    });
 
-  return res.status(200).json(new ApiResponse(200, tests, "Popular tests fetched"));
-});
+    return res
+      .status(200)
+      .json(new ApiResponse(200, tests, "Popular tests fetched"));
+  },
+);
 
 // 4. Get Attempt History
-export const getAttemptHistory = asyncHandler(async (req: Request, res: Response) => {
-  const userId = (req as any).user.userId;
+export const getAttemptHistory = asyncHandler(
+  async (req: Request, res: Response) => {
+    const userId = (req as any).user.userId;
 
-  const attempts = await prisma.testAttempt.findMany({
-    where: { 
-      userId,
-      status: "SUBMITTED" 
-    },
-    orderBy: { submittedAt: "desc" },
-    include: {
-      test: {
-        select: { name: true, totalQuestions: true }
-      }
-    }
-  });
+    const attempts = await prisma.testAttempt.findMany({
+      where: {
+        userId,
+        status: "SUBMITTED",
+      },
+      orderBy: { submittedAt: "desc" },
+      include: {
+        test: {
+          select: { name: true, totalQuestions: true },
+        },
+      },
+    });
 
-  const formatted = attempts.map(a => ({
-    attemptId: a.id,
-    testName: a.test.name,
-    score: Number(a.totalMarks),
-    percentage: Number(a.percentage),
-    submittedAt: a.submittedAt,
-    accuracy: a.attemptedCount > 0 
-      ? Math.round((a.correctCount / a.attemptedCount) * 100) 
-      : 0
-  }));
+    const formatted = attempts.map((a) => ({
+      attemptId: a.id,
+      testName: a.test.name,
+      score: Number(a.totalMarks),
+      percentage: Number(a.percentage),
+      submittedAt: a.submittedAt,
+      accuracy:
+        a.attemptedCount > 0
+          ? Math.round((a.correctCount / a.attemptedCount) * 100)
+          : 0,
+    }));
 
-  return res.status(200).json(new ApiResponse(200, formatted, "History fetched"));
-});
-
+    return res
+      .status(200)
+      .json(new ApiResponse(200, formatted, "History fetched"));
+  },
+);
 
 // 1. Get Test Instructions (Meta)
-export const getTestInstructions = asyncHandler(async (req: Request, res: Response) => {
-  const { testId } = req.params;
+export const getTestInstructions = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { testId } = req.params;
 
-  const test = await prisma.test.findUnique({
-    where: { id: testId.toString() },
-    select: {
-      id: true,
-      name: true,
-      description: true,
-      durationMinutes: true,
-      totalQuestions: true,
-      positiveMarks: true,
-      negativeMarks: true,
-      isPaid: true
-    }
-  });
+    const test = await prisma.test.findUnique({
+      where: { id: testId.toString() },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        durationMinutes: true,
+        totalQuestions: true,
+        positiveMarks: true,
+        negativeMarks: true,
+        isPaid: true,
+      },
+    });
 
-  if (!test) throw new ApiError(404, "Test not found");
+    if (!test) throw new ApiError(404, "Test not found");
 
-  return res.status(200).json(new ApiResponse(200, test, "Instructions fetched"));
-});
+    return res
+      .status(200)
+      .json(new ApiResponse(200, test, "Instructions fetched"));
+  },
+);
 
 // 2. Start Test Attempt
-export const startTestAttempt = asyncHandler(async (req: Request, res: Response) => {
-  const { testId } = req.params;
-  const userId = (req as any).user.userId;
+export const startTestAttempt = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { testId } = req.params;
+    const userId = (req as any).user.userId;
 
-  if (!testId) throw new ApiError(400, "Test ID is required");
+    if (!testId) throw new ApiError(400, "Test ID is required");
 
-  /* --------------------------------------------------
+    /* --------------------------------------------------
      1. Resume existing IN_PROGRESS attempt
   -------------------------------------------------- */
-  const existingAttempt = await prisma.testAttempt.findFirst({
-    where: {
-      userId,
-      testId: testId.toString(),
-      status: TestStatus.IN_PROGRESS,
-    },
-  });
+    const existingAttempt = await prisma.testAttempt.findFirst({
+      where: {
+        userId,
+        testId: testId.toString(),
+        status: TestStatus.IN_PROGRESS,
+      },
+    });
 
-  if (existingAttempt) {
+    if (existingAttempt) {
+      return res
+        .status(200)
+        .json(
+          new ApiResponse(
+            200,
+            { attemptId: existingAttempt.id },
+            "Resuming test",
+          ),
+        );
+    }
+
+    /* --------------------------------------------------
+     2. Fetch Test
+  -------------------------------------------------- */
+    const test = await prisma.test.findUnique({
+      where: { id: testId.toString() },
+    });
+
+    if (!test) throw new ApiError(404, "Test not found");
+
+    /* --------------------------------------------------
+     3. Calculate NEXT attemptNumber (🔥 CRITICAL FIX)
+  -------------------------------------------------- */
+    const lastAttempt = await prisma.testAttempt.findFirst({
+      where: { userId, testId: testId.toString() },
+      orderBy: { attemptNumber: "desc" },
+      select: { attemptNumber: true },
+    });
+
+    const nextAttemptNumber = (lastAttempt?.attemptNumber || 0) + 1;
+
+    /* --------------------------------------------------
+     4. Fetch Questions
+  -------------------------------------------------- */
+    const questions = await prisma.question.findMany({
+      where: {
+        topic: {
+          subject: {
+            categorySubjects: {
+              some: { categoryId: test.categoryId },
+            },
+          },
+        },
+        isActive: true,
+      },
+      take: test.totalQuestions,
+      select: { id: true },
+    });
+
+    if (questions.length === 0) {
+      throw new ApiError(400, "No questions available for this test");
+    }
+
+    const questionIds = questions.map((q) => q.id);
+
+    /* --------------------------------------------------
+     5. Create NEW attempt (SAFE)
+  -------------------------------------------------- */
+    const newAttempt = await prisma.testAttempt.create({
+      data: {
+        userId: userId.toString(),
+        testId: testId.toString(),
+        attemptNumber: nextAttemptNumber,
+        totalQuestions: test.totalQuestions,
+        status: TestStatus.IN_PROGRESS,
+        questionIds,
+        questionSetSeed: Date.now().toString(),
+      },
+    });
+
+    return res
+      .status(201)
+      .json(new ApiResponse(201, { attemptId: newAttempt.id }, "Test started"));
+  },
+);
+
+// 3. Get Questions for Attempt
+export const getAttemptQuestions = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { attemptId } = req.params;
+    const userId = (req as any).user.userId;
+
+    const attempt = await prisma.testAttempt.findUnique({
+      where: { id: attemptId.toString(), userId },
+      include: { test: true },
+    });
+
+    if (!attempt || attempt.status !== "IN_PROGRESS") {
+      throw new ApiError(400, "Invalid attempt or test already submitted");
+    }
+
+    // Calculate Time Left
+    const now = new Date();
+    const startTime = new Date(attempt.startedAt);
+    const durationMs = attempt.test.durationMinutes * 60 * 1000;
+    const expiryTime = new Date(startTime.getTime() + durationMs);
+
+    let timeLeftSeconds = Math.floor(
+      (expiryTime.getTime() - now.getTime()) / 1000,
+    );
+    if (timeLeftSeconds < 0) timeLeftSeconds = 0;
+
+    // Fetch Full Question Details based on stored IDs
+    const questionIds = attempt.questionIds as string[];
+    const questions = await prisma.question.findMany({
+      where: { id: { in: questionIds } },
+      select: {
+        id: true,
+        questionText: true,
+        option1: true,
+        option2: true,
+        option3: true,
+        option4: true,
+        questionImageUrl: true,
+        difficultyLevel: true,
+      },
+    });
+
+    // Order them according to the stored ID array order
+    const orderedQuestions = questionIds.map((id) =>
+      questions.find((q) => q.id === id),
+    );
+
     return res.status(200).json(
       new ApiResponse(
         200,
-        { attemptId: existingAttempt.id },
-        "Resuming test",
+        {
+          questions: orderedQuestions,
+          timeLeftSeconds,
+        },
+        "Questions fetched",
       ),
     );
-  }
-
-  /* --------------------------------------------------
-     2. Fetch Test
-  -------------------------------------------------- */
-  const test = await prisma.test.findUnique({
-    where: { id: testId.toString() },
-  });
-
-  if (!test) throw new ApiError(404, "Test not found");
-
-  /* --------------------------------------------------
-     3. Calculate NEXT attemptNumber (🔥 CRITICAL FIX)
-  -------------------------------------------------- */
-  const lastAttempt = await prisma.testAttempt.findFirst({
-    where: { userId, testId: testId.toString() },
-    orderBy: { attemptNumber: "desc" },
-    select: { attemptNumber: true },
-  });
-
-  const nextAttemptNumber = (lastAttempt?.attemptNumber || 0) + 1;
-
-  /* --------------------------------------------------
-     4. Fetch Questions
-  -------------------------------------------------- */
-  const questions = await prisma.question.findMany({
-    where: {
-      topic: {
-        subject: {
-          categorySubjects: {
-            some: { categoryId: test.categoryId },
-          },
-        },
-      },
-      isActive: true,
-    },
-    take: test.totalQuestions,
-    select: { id: true },
-  });
-
-  if (questions.length === 0) {
-    throw new ApiError(400, "No questions available for this test");
-  }
-
-  const questionIds = questions.map((q) => q.id);
-
-  /* --------------------------------------------------
-     5. Create NEW attempt (SAFE)
-  -------------------------------------------------- */
-  const newAttempt = await prisma.testAttempt.create({
-    data: {
-      userId: userId.toString(),
-      testId: testId.toString(),
-      attemptNumber: nextAttemptNumber,
-      totalQuestions: test.totalQuestions,
-      status: TestStatus.IN_PROGRESS,
-      questionIds,
-      questionSetSeed: Date.now().toString(),
-    },
-  });
-
-  return res.status(201).json(
-    new ApiResponse(
-      201,
-      { attemptId: newAttempt.id },
-      "Test started",
-    ),
-  );
-});
-
-// 3. Get Questions for Attempt
-export const getAttemptQuestions = asyncHandler(async (req: Request, res: Response) => {
-  const { attemptId } = req.params;
-  const userId = (req as any).user.userId;
-
-  const attempt = await prisma.testAttempt.findUnique({
-    where: { id: attemptId.toString(), userId },
-    include: { test: true }
-  });
-
-  if (!attempt || attempt.status !== "IN_PROGRESS") {
-    throw new ApiError(400, "Invalid attempt or test already submitted");
-  }
-
-  // Calculate Time Left
-  const now = new Date();
-  const startTime = new Date(attempt.startedAt);
-  const durationMs = attempt.test.durationMinutes * 60 * 1000;
-  const expiryTime = new Date(startTime.getTime() + durationMs);
-  
-  let timeLeftSeconds = Math.floor((expiryTime.getTime() - now.getTime()) / 1000);
-  if (timeLeftSeconds < 0) timeLeftSeconds = 0;
-
-  // Fetch Full Question Details based on stored IDs
-  const questionIds = attempt.questionIds as string[];
-  const questions = await prisma.question.findMany({
-    where: { id: { in: questionIds } },
-    select: {
-      id: true,
-      questionText: true,
-      option1: true,
-      option2: true,
-      option3: true,
-      option4: true,
-      questionImageUrl: true,
-      difficultyLevel: true
-    }
-  });
-
-  // Order them according to the stored ID array order
-  const orderedQuestions = questionIds.map(id => questions.find(q => q.id === id));
-
-  return res.status(200).json(new ApiResponse(200, {
-    questions: orderedQuestions,
-    timeLeftSeconds
-  }, "Questions fetched"));
-});
+  },
+);
 
 // 4. Save Answer (Auto-save)
 export const saveAnswer = asyncHandler(async (req: Request, res: Response) => {
@@ -1046,29 +1136,34 @@ export const saveAnswer = asyncHandler(async (req: Request, res: Response) => {
   const { questionId, selectedOption, timeSpent } = req.body; // option: 1,2,3,4 or null to clear
 
   // Security check: ensure attempt is still in progress
-  const attempt = await prisma.testAttempt.findUnique({ where: { id: attemptId.toString() } });
+  const attempt = await prisma.testAttempt.findUnique({
+    where: { id: attemptId.toString() },
+  });
   if (!attempt || attempt.status !== "IN_PROGRESS") {
     throw new ApiError(400, "Cannot save answer. Test is not in progress.");
   }
 
   // Find existing answer or create new
   const existingAnswer = await prisma.testAttemptAnswer.findFirst({
-    where: { attemptId:attemptId.toString(), questionId }
+    where: { attemptId: attemptId.toString(), questionId },
   });
 
   if (existingAnswer) {
     await prisma.testAttemptAnswer.update({
       where: { id: existingAnswer.id },
-      data: { selectedOption: selectedOption ? Number(selectedOption) : null, timeSpent }
+      data: {
+        selectedOption: selectedOption ? Number(selectedOption) : null,
+        timeSpent,
+      },
     });
   } else {
     await prisma.testAttemptAnswer.create({
       data: {
-        attemptId:attemptId.toString(),
+        attemptId: attemptId.toString(),
         questionId,
         selectedOption: selectedOption ? Number(selectedOption) : null,
-        timeSpent: timeSpent || 0
-      }
+        timeSpent: timeSpent || 0,
+      },
     });
   }
 
@@ -1081,7 +1176,7 @@ export const submitTest = asyncHandler(async (req: Request, res: Response) => {
 
   const attempt = await prisma.testAttempt.findUnique({
     where: { id: attemptId.toString() },
-    include: { test: true }
+    include: { test: true },
   });
 
   if (!attempt || attempt.status === "SUBMITTED") {
@@ -1090,8 +1185,8 @@ export const submitTest = asyncHandler(async (req: Request, res: Response) => {
 
   // Fetch all user answers
   const userAnswers = await prisma.testAttemptAnswer.findMany({
-    where: { attemptId:attemptId.toString() },
-    include: { question: true }
+    where: { attemptId: attemptId.toString() },
+    include: { question: true },
   });
 
   let correct = 0;
@@ -1109,21 +1204,21 @@ export const submitTest = asyncHandler(async (req: Request, res: Response) => {
     }
 
     const isCorrect = ans.selectedOption === ans.question.correctOption;
-    
+
     // Update individual answer correctness in DB
     await prisma.testAttemptAnswer.update({
       where: { id: ans.id },
       data: {
         isCorrect,
-        marksObtained: isCorrect ? posMarks : -negMarks
-      }
+        marksObtained: isCorrect ? posMarks : -negMarks,
+      },
     });
 
     if (isCorrect) correct++;
     else incorrect++;
   }
 
-  const totalMarks = (correct * posMarks) - (incorrect * negMarks);
+  const totalMarks = correct * posMarks - incorrect * negMarks;
   const percentage = (totalMarks / (attempt.totalQuestions * posMarks)) * 100;
 
   // Update Attempt with final stats
@@ -1136,147 +1231,178 @@ export const submitTest = asyncHandler(async (req: Request, res: Response) => {
       incorrectCount: incorrect,
       attemptedCount: correct + incorrect,
       totalMarks,
-      percentage
-    }
+      percentage,
+    },
   });
 
-  return res.status(200).json(new ApiResponse(200, { attemptId }, "Test submitted successfully"));
+  return res
+    .status(200)
+    .json(new ApiResponse(200, { attemptId }, "Test submitted successfully"));
 });
 
 // 6. Get Result Report
-export const getTestResult = asyncHandler(async (req: Request, res: Response) => {
-  const { attemptId } = req.params;
+export const getTestResult = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { attemptId } = req.params;
 
-  const attempt = await prisma.testAttempt.findUnique({
-    where: { id: attemptId.toString() },
-    include: { 
-      test: { select: { name: true, totalQuestions: true, positiveMarks: true } }
-    }
-  });
-
-  if (!attempt || attempt.status !== "SUBMITTED") {
-    throw new ApiError(400, "Result not available");
-  }
-
-  const data = {
-    testName: attempt.test.name,
-    score: Number(attempt.totalMarks),
-    totalScore: attempt.test.totalQuestions * Number(attempt.test.positiveMarks),
-    percentage: Number(attempt.percentage),
-    correct: attempt.correctCount,
-    incorrect: attempt.incorrectCount,
-    unattempted: attempt.totalQuestions - attempt.attemptedCount,
-    accuracy: attempt.attemptedCount > 0 
-      ? ((attempt.correctCount / attempt.attemptedCount) * 100).toFixed(1) 
-      : 0,
-    timeTaken: "25m 30s" // You can calculate actual time difference if needed
-  };
-
-  return res.status(200).json(new ApiResponse(200, data, "Result fetched"));
-});
-
-export const viewTestSolution = asyncHandler(async (req: Request, res: Response) => {
-  // 1. FIX: Handle both .id and .userId to match your middleware
-  const userObj = (req as any).user;
-  const currentUserId = userObj?.id || userObj?.userId; 
-
-  const { attemptId } = req.params;
-
-  if (!attemptId) {
-    throw new ApiError(400, "Attempt ID is required");
-  }
-
-  // Fetch Attempt
-  const attempt = await prisma.testAttempt.findUnique({
-    where: { id: attemptId.toString() },
-    include: {
-      test: {
-        select: {
-          name: true,
-          totalQuestions: true,
-          positiveMarks: true,
-          negativeMarks: true,
+    const attempt = await prisma.testAttempt.findUnique({
+      where: { id: attemptId.toString() },
+      include: {
+        test: {
+          select: { name: true, totalQuestions: true, positiveMarks: true },
         },
       },
-      answers: {
-        orderBy: { question: { id: 'asc' } },
-        include: {
-          question: {
-            select: {
-              id: true,
-              questionText: true,
-              questionImageUrl: true,
-              option1: true,
-              option2: true,
-              option3: true,
-              option4: true,
-              correctOption: true,
-              explanation: true,
-              explanationImageUrl: true,
-              difficultyLevel: true,
-              topicId: true,
+    });
+
+    if (!attempt || attempt.status !== "SUBMITTED") {
+      throw new ApiError(400, "Result not available");
+    }
+
+    const data = {
+      testName: attempt.test.name,
+      score: Number(attempt.totalMarks),
+      totalScore:
+        attempt.test.totalQuestions * Number(attempt.test.positiveMarks),
+      percentage: Number(attempt.percentage),
+      correct: attempt.correctCount,
+      incorrect: attempt.incorrectCount,
+      unattempted: attempt.totalQuestions - attempt.attemptedCount,
+      accuracy:
+        attempt.attemptedCount > 0
+          ? ((attempt.correctCount / attempt.attemptedCount) * 100).toFixed(1)
+          : 0,
+      timeTaken: "25m 30s", // You can calculate actual time difference if needed
+    };
+
+    return res.status(200).json(new ApiResponse(200, data, "Result fetched"));
+  },
+);
+
+export const viewTestSolution = asyncHandler(
+  async (req: Request, res: Response) => {
+    // 1. FIX: Handle both .id and .userId to match your middleware
+    const userObj = (req as any).user;
+    const currentUserId = userObj?.id || userObj?.userId;
+
+    const { attemptId } = req.params;
+
+    if (!attemptId) {
+      throw new ApiError(400, "Attempt ID is required");
+    }
+
+    // Fetch Attempt
+    const attempt = await prisma.testAttempt.findUnique({
+      where: { id: attemptId.toString() },
+      include: {
+        test: {
+          select: {
+            name: true,
+            totalQuestions: true,
+            positiveMarks: true,
+            negativeMarks: true,
+          },
+        },
+        answers: {
+          orderBy: { question: { id: "asc" } },
+          include: {
+            question: {
+              select: {
+                id: true,
+                questionText: true,
+                questionImageUrl: true,
+                option1: true,
+                option2: true,
+                option3: true,
+                option4: true,
+                correctOption: true,
+                explanation: true,
+                explanationImageUrl: true,
+                difficultyLevel: true,
+                topicId: true,
+              },
             },
           },
         },
       },
-    },
-  });
+    });
 
-  if (!attempt) {
-    throw new ApiError(404, "Test attempt not found");
-  }
-
-  // 2. FIX: Debugging Log (Remove after fixing)
-  console.log(`Attempt Owner: ${attempt.userId} | Requesting User: ${currentUserId}`);
-
-  // 3. FIX: Convert both to String before comparing to avoid '1' !== 1 issues
-  if (attempt.userId.toString() !== currentUserId.toString()) {
-    throw new ApiError(403, "You do not have permission to view this solution");
-  }
-
-  if (attempt.status !== "SUBMITTED") {
-    throw new ApiError(400, "Test is still in progress. Submit it to view solutions.");
-  }
-
-  // ... (Rest of your formatting logic remains the same) ...
-
-  const formattedSolutions = attempt.answers.map((ans) => {
-    const q = ans.question;
-    let status = "UNATTEMPTED";
-    if (ans.selectedOption !== null) {
-      status = ans.selectedOption === q.correctOption ? "CORRECT" : "INCORRECT";
+    if (!attempt) {
+      throw new ApiError(404, "Test attempt not found");
     }
 
-    return {
-      id: q.id,
-      questionText: q.questionText,
-      questionImage: q.questionImageUrl,
-      options: [q.option1, q.option2, q.option3, q.option4],
-      userSelectedOption: ans.selectedOption,
-      correctOption: q.correctOption,
-      explanation: q.explanation,
-      explanationImage: q.explanationImageUrl,
-      status: status,
-      marks: ans.marksObtained,
-      timeSpent: ans.timeSpent,
-      difficulty: q.difficultyLevel
+    // 2. FIX: Debugging Log (Remove after fixing)
+    console.log(
+      `Attempt Owner: ${attempt.userId} | Requesting User: ${currentUserId}`,
+    );
+
+    // 3. FIX: Convert both to String before comparing to avoid '1' !== 1 issues
+    if (attempt.userId.toString() !== currentUserId.toString()) {
+      throw new ApiError(
+        403,
+        "You do not have permission to view this solution",
+      );
+    }
+
+    if (attempt.status !== "SUBMITTED") {
+      throw new ApiError(
+        400,
+        "Test is still in progress. Submit it to view solutions.",
+      );
+    }
+
+    // ... (Rest of your formatting logic remains the same) ...
+
+    const formattedSolutions = attempt.answers.map((ans) => {
+      const q = ans.question;
+      let status = "UNATTEMPTED";
+      if (ans.selectedOption !== null) {
+        status =
+          ans.selectedOption === q.correctOption ? "CORRECT" : "INCORRECT";
+      }
+
+      return {
+        id: q.id,
+        questionText: q.questionText,
+        questionImage: q.questionImageUrl,
+        options: [q.option1, q.option2, q.option3, q.option4],
+        userSelectedOption: ans.selectedOption,
+        correctOption: q.correctOption,
+        explanation: q.explanation,
+        explanationImage: q.explanationImageUrl,
+        status: status,
+        marks: ans.marksObtained,
+        timeSpent: ans.timeSpent,
+        difficulty: q.difficultyLevel,
+      };
+    });
+
+    const summary = {
+      testName: attempt.test.name,
+      totalScore: attempt.totalMarks,
+      maxScore:
+        attempt.test.totalQuestions * Number(attempt.test.positiveMarks),
+      accuracy:
+        attempt.attemptedCount > 0
+          ? Math.round((attempt.correctCount / attempt.attemptedCount) * 100)
+          : 0,
+      timeTakenSeconds: Math.floor(
+        (new Date(attempt.submittedAt!).getTime() -
+          new Date(attempt.startedAt).getTime()) /
+          1000,
+      ),
+      correctCount: attempt.correctCount,
+      incorrectCount: attempt.incorrectCount,
+      unattemptedCount: attempt.test.totalQuestions - attempt.attemptedCount,
     };
-  });
 
-  const summary = {
-    testName: attempt.test.name,
-    totalScore: attempt.totalMarks,
-    maxScore: attempt.test.totalQuestions * Number(attempt.test.positiveMarks),
-    accuracy: attempt.attemptedCount > 0 
-      ? Math.round((attempt.correctCount / attempt.attemptedCount) * 100) 
-      : 0,
-    timeTakenSeconds: Math.floor((new Date(attempt.submittedAt!).getTime() - new Date(attempt.startedAt).getTime()) / 1000),
-    correctCount: attempt.correctCount,
-    incorrectCount: attempt.incorrectCount,
-    unattemptedCount: attempt.test.totalQuestions - attempt.attemptedCount
-  };
-
-  return res.status(200).json(
-    new ApiResponse(200, { summary, questions: formattedSolutions }, "Solutions fetched successfully")
-  );
-});
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          { summary, questions: formattedSolutions },
+          "Solutions fetched successfully",
+        ),
+      );
+  },
+);

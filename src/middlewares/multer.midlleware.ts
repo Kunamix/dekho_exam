@@ -7,7 +7,7 @@ const storage = multer.memoryStorage();
 
 // File filter function
 const fileFilter = (
-  req: Request,
+  _req: Request,
   file: Express.Multer.File,
   cb: multer.FileFilterCallback
 ) => {
@@ -29,7 +29,7 @@ export const upload = multer({
 });
 
 // Middleware to handle multer errors
-export const handleMulterError = (err: any, req: Request, res: any, next: any) => {
+export const handleMulterError = (err: any, _req: Request, res: any, next: any) => {
   if (err instanceof multer.MulterError) {
     if (err.code === "LIMIT_FILE_SIZE") {
       return res.status(400).json({
