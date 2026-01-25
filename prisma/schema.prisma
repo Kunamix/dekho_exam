@@ -290,7 +290,6 @@ model Question {
   correctOption       Int
   explanation         String?         @db.Text
   explanationImageUrl String?
-  usedInTestIds       Json?
   difficultyLevel     DifficultyLevel @default(MEDIUM)
   isActive            Boolean         @default(true)
   createdById         String?
@@ -306,22 +305,21 @@ model Question {
 }
 
 model Test {
-  id                     String   @id @default(uuid())
-  categoryId             String
-  subjectId              String?
-  name                   String
-  description            String?
-  preSelectedQuestionIds Json?
-  totalQuestions         Int      @default(100)
-  durationMinutes        Int      @default(60)
-  positiveMarks          Decimal  @default(1.0) @db.Decimal(5, 2)
-  negativeMarks          Decimal  @default(0.25) @db.Decimal(5, 2)
-  isPaid                 Boolean  @default(false)
-  testNumber             Int
-  isActive               Boolean  @default(true)
-  createdById            String?
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  id              String   @id @default(uuid())
+  categoryId      String
+  subjectId       String?
+  name            String
+  description     String?
+  totalQuestions  Int      @default(100)
+  durationMinutes Int      @default(60)
+  positiveMarks   Decimal  @default(1.0) @db.Decimal(5, 2)
+  negativeMarks   Decimal  @default(0.25) @db.Decimal(5, 2)
+  isPaid          Boolean  @default(false)
+  testNumber      Int
+  isActive        Boolean  @default(true)
+  createdById     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   subject  Subject? @relation(fields: [subjectId], references: [id])

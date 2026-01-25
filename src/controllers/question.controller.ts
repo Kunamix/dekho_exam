@@ -324,52 +324,26 @@ export const deleteQuestion = asyncHandler(
   },
 );
 
-// Convert A/B/C/D or 1/2/3/4 → number
-const mapCorrectAnswer = (value: string) => {
-  if (!value) return null;
-
-  const v = value.toString().trim().toLowerCase();
-  if (v === "a") return 1;
-  if (v === "b") return 2;
-  if (v === "c") return 3;
-  if (v === "d") return 4;
-
-  const num = Number(v);
-  return [1, 2, 3, 4].includes(num) ? num : null;
-};
-
+// Bulk Upload Questions via CSV
 export const bulkUploadQuestions = asyncHandler(
   async (req: Request, res: Response) => {
     const userId = (req as any).user?.userId;
     const file = (req as any).file;
-    const { topicId } = req.body;
 
-    // 1️⃣ Basic validations
     if (!file) {
       throw new ApiError(400, "CSV file is required");
     }
 
-    if (!topicId) {
-      throw new ApiError(400, "Topic ID is required");
-    }
-
-    // 2️⃣ Validate topic once
-    const topicExists = await prisma.topic.findUnique({
-      where: { id: topicId },
-    });
-
-    if (!topicExists) {
-      throw new ApiError(400, "Topic not found");
-    }
-
-    // 3️⃣ Parse CSV
     const results: any[] = [];
     const errors: any[] = [];
 
+    // Parse CSV
+    const stream = Readable.from(file.buffer.toString());
+
     await new Promise((resolve, reject) => {
-      Readable.from(file.buffer)
+      stream
         .pipe(csv())
-        .on("data", (row) => results.push(row))
+        .on("data", (data) => results.push(data))
         .on("end", resolve)
         .on("error", reject);
     });
@@ -378,75 +352,104 @@ export const bulkUploadQuestions = asyncHandler(
       throw new ApiError(400, "CSV file is empty");
     }
 
-    // 4️⃣ Process rows
-    const questionsToCreate: any[] = [];
+    // Expected CSV columns: topicId, questionText, option1, option2, option3, option4, correctOption, explanation, difficultyLevel, questionImageUrl, explanationImageUrl
+
+    const questionsToCreate = [];
 
     for (let i = 0; i < results.length; i++) {
       const row = results[i];
-      const rowNum = i + 2; // header + index
+      const rowNum = i + 2; // +2 because of header row and 0-based index
 
-      const questionText = row["Question"]?.trim();
-      const option1 = row["Option A"]?.trim();
-      const option2 = row["Option B"]?.trim();
-      const option3 = row["Option C"]?.trim();
-      const option4 = row["Option D"]?.trim();
-      const explanation = row["Explanation"]?.trim() || null;
-      const correctOption = mapCorrectAnswer(row["Correct Answer"]);
+      try {
+        // Validate required fields
+        if (
+          !row.topicId ||
+          !row.questionText ||
+          !row.option1 ||
+          !row.option2 ||
+          !row.option3 ||
+          !row.option4 ||
+          !row.correctOption
+        ) {
+          errors.push({
+            row: rowNum,
+            error: "Missing required fields",
+            data: row,
+          });
+          continue;
+        }
 
-      if (
-        !questionText ||
-        !option1 ||
-        !option2 ||
-        !option3 ||
-        !option4 ||
-        !correctOption
-      ) {
+        const correctOption = Number(row.correctOption);
+        if (![1, 2, 3, 4].includes(correctOption)) {
+          errors.push({
+            row: rowNum,
+            error: "Correct option must be between 1 and 4",
+            data: row,
+          });
+          continue;
+        }
+
+        // Verify topic exists
+        const topicExists = await prisma.topic.findUnique({
+          where: { id: row.topicId.trim() },
+        });
+
+        if (!topicExists) {
+          errors.push({
+            row: rowNum,
+            error: "Topic not found",
+            data: row,
+          });
+          continue;
+        }
+
+        questionsToCreate.push({
+          topicId: row.topicId.trim(),
+          questionText: row.questionText.trim(),
+          questionImageUrl: row.questionImageUrl?.trim() || null,
+          option1: row.option1.trim(),
+          option2: row.option2.trim(),
+          option3: row.option3.trim(),
+          option4: row.option4.trim(),
+          correctOption,
+          explanation: row.explanation?.trim() || null,
+          explanationImageUrl: row.explanationImageUrl?.trim() || null,
+          difficultyLevel: row.difficultyLevel?.trim() || "MEDIUM",
+          createdById: userId,
+        });
+      } catch (error: any) {
         errors.push({
           row: rowNum,
-          error: "Missing or invalid required fields",
+          error: error.message,
+          data: row,
         });
-        continue;
       }
-
-      questionsToCreate.push({
-        topicId,
-        questionText,
-        option1,
-        option2,
-        option3,
-        option4,
-        correctOption,
-        explanation, // ✅ explanation supported
-        difficultyLevel: "MEDIUM",
-        questionImageUrl: null,
-        explanationImageUrl: null,
-        isActive: true,
-        createdById: userId,
-      });
     }
 
-    // 5️⃣ Bulk insert
-    const created = await prisma.question.createMany({
-      data: questionsToCreate,
-      skipDuplicates: true,
-    });
+    // Bulk create valid questions
+    let createdCount = 0;
+    if (questionsToCreate.length > 0) {
+      const created = await prisma.question.createMany({
+        data: questionsToCreate,
+        skipDuplicates: true,
+      });
+      createdCount = created.count;
+    }
 
-    // 6️⃣ Response
     return res.status(200).json(
       new ApiResponse(
         200,
         {
           totalRows: results.length,
-          successfullyCreated: created.count,
+          successfullyCreated: createdCount,
           failedRows: errors.length,
-          errors: errors.length ? errors : undefined,
+          errors: errors.length > 0 ? errors : undefined,
         },
-        `Bulk upload completed. ${created.count} questions created, ${errors.length} failed.`
-      )
+        `Bulk upload completed. ${createdCount} questions created, ${errors.length} failed.`,
+      ),
     );
-  }
+  },
 );
-
 
 // Get Question Statistics
 export const getQuestionStats = asyncHandler(

@@ -1,4 +1,4 @@
-import { updatePassword, updateProfile} from "@/controllers/auth.controller";
+import { updatePassword, updateProfile, uploadAvatar } from "@/controllers/auth.controller";
 import {
   deleteUser,
   getAllUsers,
